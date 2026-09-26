@@ -74,6 +74,8 @@ export function VoiceAnswerBox<F extends VoiceField>(props: {
   const talkedOver = useRef(false); // the office started answering while the voice was talking
   const beingSaid = useRef(question);
   const tries = useRef(0);
+  const showingProgress = useRef(false); // a "words so far" request is on its way
+  const answerDone = useRef(false); // the full answer is in, so words-so-far must not overwrite it
   // Bumped whenever this box stops or moves on, so late callbacks are ignored.
   const turn = useRef(0);
 
@@ -118,10 +120,36 @@ export function VoiceAnswerBox<F extends VoiceField>(props: {
     setTimeout(done, 4000 + line.split(" ").length * 450);
   }
 
+  async function transcribe(recording: Blob): Promise<{ ok: boolean; text: string; error?: string }> {
+    const response = await fetch("/api/voice/transcribe", {
+      method: "POST",
+      headers: { "Content-Type": "audio/wav" },
+      body: recording,
+    });
+    const result = await response.json();
+    return { ok: response.ok, text: (result.text as string) ?? "", error: result.error };
+  }
+
+  // Show the words heard so far while the office is still talking. One request at a time;
+  // if one is still on its way, this update is skipped and the next one catches up.
+  async function showProgress(recordingSoFar: Blob, myTurn: number) {
+    if (showingProgress.current) return;
+    showingProgress.current = true;
+    try {
+      const { ok, text: soFar } = await transcribe(recordingSoFar);
+      if (ok && soFar && myTurn === turn.current && !answerDone.current) setText(soFar);
+    } catch {
+      // Just a preview. The full answer is still read when they finish.
+    } finally {
+      showingProgress.current = false;
+    }
+  }
+
   // Start listening for the answer. Returns false if there's no microphone to use.
   async function listen(): Promise<boolean> {
     const myTurn = turn.current;
     talkedOver.current = false;
+    answerDone.current = false;
     try {
       const started = await listenForAnswer({
         pauseMs: PAUSE_MS[field],
@@ -134,8 +162,10 @@ export function VoiceAnswerBox<F extends VoiceField>(props: {
           setPhase("listening");
         },
         onLevel: (loudness) => myTurn === turn.current && setLevel(loudness),
+        onProgress: (soFar) => myTurn === turn.current && showProgress(soFar, myTurn),
         onDone: (recording) => {
           if (myTurn !== turn.current) return;
+          answerDone.current = true;
           listening.current = null;
           if (recording) hear(recording);
           else if (!talking.current) setPhase("waiting");
@@ -179,19 +209,14 @@ export function VoiceAnswerBox<F extends VoiceField>(props: {
     setPhase("reading");
     setMessage(null);
     try {
-      const response = await fetch("/api/voice/transcribe", {
-        method: "POST",
-        headers: { "Content-Type": "audio/wav" },
-        body: recording,
-      });
-      const result = await response.json();
+      const result = await transcribe(recording);
       if (myTurn !== turn.current) return;
-      if (!response.ok) {
-        setMessage(result.error);
+      if (!result.ok) {
+        setMessage(result.error ?? "Couldn't hear that right now. You can type your answer.");
         setPhase("waiting");
         return;
       }
-      const heard = (result.text as string) ?? "";
+      const heard = result.text;
       // Just the voice's own echo: keep listening for the real answer.
       if (talkedOver.current && !soundsLikeTheOffice(heard, beingSaid.current)) {
         if (await listen()) setPhase("listening");
@@ -267,7 +292,7 @@ export function VoiceAnswerBox<F extends VoiceField>(props: {
 
   const status: Record<Phase, string> = {
     speaking: canListen ? "Asking... you can start answering anytime." : "Asking...",
-    listening: "Listening... take your time.",
+    listening: text ? "Listening... keep going, or tap I'm done." : "Listening... your words show up below as you talk.",
     reading: "Getting your answer...",
     waiting: canListen ? "Tap Answer out loud, or type your answer." : "Type your answer below.",
   };

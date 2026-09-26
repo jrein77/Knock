@@ -63,15 +63,18 @@ const PREROLL_MS = 400; // keep a little audio from just before speech starts, s
 const START_MS = 200; // this much steady sound counts as speech starting
 const START_MS_OVER_VOICE = 350; // stricter while the voice is talking, so its echo doesn't count
 const MAX_MS = 45_000; // longest single answer
+const PROGRESS_MS = 1200; // how often to hand over the answer so far, so it can show while they talk
 
 // Listen for one answer. Calls `onSpeech` when the office starts talking, `onLevel` with how loud
-// they are (0 to 1, for the little meter), and `onDone` with the recording, or null if they said nothing.
+// they are (0 to 1, for the little meter), `onProgress` every so often with the recording so far
+// (to show the words as they come), and `onDone` with the recording, or null if they said nothing.
 export async function listenForAnswer(options: {
   pauseMs: number; // this much quiet after speaking means they're done
   firstWordMs: number; // give up after this long with no speech (not counting while the voice talks)
   voiceIsTalking: () => boolean;
   onSpeech: () => void;
   onLevel: (level: number) => void;
+  onProgress: (recordingSoFar: Blob) => void;
   onDone: (recording: Blob | null) => void;
 }): Promise<Listening> {
   await openMic();
@@ -82,6 +85,7 @@ export async function listenForAnswer(options: {
   let quietMs = 0;
   let waitedMs = 0;
   let spokenMs = 0;
+  let sinceProgressMs = 0;
   let rate = 48_000;
   let preroll: Float32Array[] = [];
   let recorded: Float32Array[] = [];
@@ -131,6 +135,11 @@ export async function listenForAnswer(options: {
 
     recorded.push(samples);
     spokenMs += blockMs;
+    sinceProgressMs += blockMs;
+    if (sinceProgressMs >= PROGRESS_MS) {
+      sinceProgressMs = 0;
+      options.onProgress(toWav(recorded, rate));
+    }
     quietMs = level > threshold * 0.7 ? 0 : quietMs + blockMs;
     if (quietMs >= options.pauseMs || spokenMs >= MAX_MS) end(true);
   };
