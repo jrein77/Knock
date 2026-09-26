@@ -35,7 +35,10 @@ function answerSchema(field: VoiceField, areas: string[], companies: string[]) {
     case "visitSlots":
       return z
         .array(z.object({ day: z.enum(DAYS), time: TIME, end: TIME.nullable() }))
-        .describe('Weekly times. "Lunch" means 12:00 to 13:00. Empty if they take no visits.');
+        .describe(
+          'Weekly times during office hours. "Noon", "12" or "lunch" is 12:00 (lunch ends 13:00). ' +
+            'A bare "2" or "3" means the afternoon (14:00, 15:00). Nothing before 07:00. Empty if they take no visits.'
+        );
     case "redirectOptions":
       return z.array(z.enum(REDIRECTS)).describe("Empty if none");
     case "weeklyCap":
@@ -105,8 +108,10 @@ export async function POST(request: Request) {
     // Visit times back in the sign's own shape: a window only when they gave an end time.
     if (field === "visitSlots") {
       const slots = output.answer as { day: (typeof DAYS)[number]; time: string; end: string | null }[];
+      // Office hours only: a visit at "00:00" is a misreading of "12", so drop anything that early.
+      const daytime = slots.filter((slot) => slot.time >= "07:00" && (!slot.end || slot.end > slot.time));
       return Response.json({
-        answer: slots.map((slot) =>
+        answer: daytime.map((slot) =>
           slot.end ? { day: slot.day, time: slot.time, end: slot.end } : { day: slot.day, time: slot.time }
         ),
       });

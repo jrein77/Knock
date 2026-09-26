@@ -12,6 +12,7 @@ import {
 } from "@/components/sign-questions";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Tooltip } from "@/components/ui/tooltip";
 import type { LastChange, SignChange } from "@/lib/sign";
 import { STATUS_STYLE } from "@/lib/status-style";
 import type { Office, Status } from "@/lib/types";
@@ -28,10 +29,26 @@ type SignData = {
 };
 
 // Each status says what it does to reps, so nobody has to guess.
-const STATUSES: { value: Status; label: string; effect: string }[] = [
-  { value: "open", label: "Open", effect: "Any rep can ask for a visit." },
-  { value: "topics", label: "Topics only", effect: "Only reps with a topic you want." },
-  { value: "closed", label: "Closed", effect: "No visits. Safety notices still get through." },
+// `hint` is the longer version, shown on hover before anything changes.
+const STATUSES: { value: Status; label: string; effect: string; hint: string }[] = [
+  {
+    value: "open",
+    label: "Open",
+    effect: "Any rep can ask for a visit.",
+    hint: "Any rep can ask for a visit. Knock books them into your visit times, up to your weekly limit.",
+  },
+  {
+    value: "topics",
+    label: "Topics only",
+    effect: "Only reps with a topic you want.",
+    hint: "Only reps bringing a topic you listed get a visit. Everyone else is offered something else, like dropping off samples.",
+  },
+  {
+    value: "closed",
+    label: "Closed",
+    effect: "No visits. Safety notices still get through.",
+    hint: "No rep visits for now. Reps can still leave samples or materials, and safety notices always get through.",
+  },
 ];
 
 async function postJson(url: string, body: unknown): Promise<{ historyId: string | null } | null> {
@@ -218,6 +235,7 @@ export function SignEditor({ officeId, showName = true }: { officeId: string; sh
           onChange={(field, value) => setDraft((current) => (current ? { ...current, [field]: value } : current))}
           areas={data.areas}
           companies={data.companies}
+          specialty={office.specialty}
           onFinished={() => setReviewing(true)}
         />
         {changed.length > 0 && (
@@ -261,17 +279,23 @@ function StatusPicker({ current, onPick }: { current: Status; onPick: (status: S
         {STATUSES.map((status) => {
           const isNow = current === status.value;
           return (
-            <Button
+            <Tooltip
               key={status.value}
-              variant="outline"
-              aria-pressed={isNow}
-              onClick={() => !isNow && onPick(status.value)}
-              className={`h-14 px-1 text-base font-semibold whitespace-nowrap sm:text-lg ${
-                isNow ? STATUS_STYLE[status.value].className : ""
-              }`}
+              trigger={
+                <Button
+                  variant="outline"
+                  aria-pressed={isNow}
+                  onClick={() => !isNow && onPick(status.value)}
+                  className={`h-14 px-1 text-base font-semibold whitespace-nowrap sm:text-lg ${
+                    isNow ? STATUS_STYLE[status.value].className : ""
+                  }`}
+                >
+                  {status.label}
+                </Button>
+              }
             >
-              {status.label}
-            </Button>
+              {status.hint}
+            </Tooltip>
           );
         })}
       </div>

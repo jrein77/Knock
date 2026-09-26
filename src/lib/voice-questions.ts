@@ -22,7 +22,7 @@ export const VOICE_QUESTIONS: Record<VoiceField, string> = {
   status:
     "Are you taking rep visits right now? You can say open to all reps, only for topics you want, or not right now.",
   topics: "Which topics do you want reps to bring?",
-  visitSlots: "When can reps visit? Tell me the days and times.",
+  visitSlots: "When can reps visit? Tell me the days and times. Take your time.",
   redirectOptions:
     "When a visit won't work, what can reps do instead? Drop samples at the desk, a virtual meeting, the next open time, or leave materials.",
   weeklyCap: "How many rep visits a week, at most?",
@@ -47,10 +47,52 @@ export const VOICE_REPLIES = {
   offTopic: "Let's keep to rep visits.",
 };
 
+// "Topics" can be unclear, so the topics question names some, picked by the practice's specialty.
+// Each specialty word points to the areas practices like it usually ask about.
+const SPECIALTY_AREAS: { match: RegExp; areas: string[] }[] = [
+  { match: /cardi|heart|vascular/i, areas: ["Anticoagulant", "Lipids"] },
+  { match: /endocrin|diabet|metabol/i, areas: ["GLP-1 / diabetes", "Lipids"] },
+  { match: /pulmon|lung|respir|allerg/i, areas: ["Asthma / COPD"] },
+  { match: /derm|skin/i, areas: ["Psoriasis"] },
+  { match: /pediatric|children/i, areas: ["Asthma / COPD"] },
+  { match: /primary|family|internal|general|community/i, areas: ["GLP-1 / diabetes", "Lipids", "Anticoagulant"] },
+];
+
+// "GLP-1 / diabetes" reads badly out loud; "GLP-1 and diabetes" doesn't.
+function sayArea(area: string): string {
+  return area.replace(" / ", " and ");
+}
+
+function sayList(items: string[]): string {
+  if (items.length <= 1) return items.join("");
+  return `${items.slice(0, -1).join(", ")}, or ${items[items.length - 1]}`;
+}
+
+// The topics question for this practice: suggestions for its specialty first, then the rest.
+// The specialty itself is never read out, only used to pick the order.
+export function topicsQuestion(specialty: string | null, areas: string[]): string {
+  const suggested = SPECIALTY_AREAS.find((entry) => specialty && entry.match.test(specialty))?.areas.filter(
+    (area) => areas.includes(area)
+  );
+  const intro = "Topics are the kinds of medicine reps come to talk about.";
+  if (!suggested || suggested.length === 0) {
+    return `${intro} Reps can bring ${sayList(areas.map(sayArea))}. Which do you want to hear about?`;
+  }
+  const others = areas.filter((area) => !suggested.includes(area));
+  const alsoLine = others.length > 0 ? ` Reps can also bring ${sayList(others.map(sayArea))}.` : "";
+  return `${intro} Practices like yours often want ${sayList(suggested.map(sayArea))}.${alsoLine} Which do you want to hear about?`;
+}
+
+// Every version of the topics question, one per specialty group plus the general one.
+function allTopicsQuestions(areas: string[]): string[] {
+  const samples = ["", "cardiology", "endocrinology", "pulmonology", "dermatology", "pediatrics", "primary care"];
+  return [...new Set(samples.map((specialty) => topicsQuestion(specialty || null, areas)))];
+}
+
 // Everything the voice may say: each question, each reply, and a reply followed by a question.
 // /api/voice/speak refuses anything else, so it can't be used to read out other text.
-export function speakableLines(): Set<string> {
-  const questions = Object.values(VOICE_QUESTIONS);
+export function speakableLines(areas: string[]): Set<string> {
+  const questions = [...Object.values(VOICE_QUESTIONS), ...allTopicsQuestions(areas)];
   const replies = Object.values(VOICE_REPLIES);
   return new Set([
     ...questions,

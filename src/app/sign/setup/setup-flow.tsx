@@ -198,6 +198,7 @@ export function SetupFlow({ officeId }: { officeId: string }) {
               onChange={(field, value) => update({ [field]: value } as Partial<Draft>)}
               areas={data.areas}
               companies={data.companies}
+              specialty={draft.specialty || null}
               startWith={QUESTION_FIELDS[0]}
               onFinished={() => setStepIndex(2)}
             />

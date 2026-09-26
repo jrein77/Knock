@@ -1,7 +1,7 @@
 "use client";
 
 import { CheckIcon, EyeIcon, LockIcon } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { DoorSign } from "@/components/door-sign";
 import { CapStepper, ChoicePicker, SlotsPicker } from "@/components/sign-line-editors";
 import { Button } from "@/components/ui/button";
@@ -11,6 +11,7 @@ import type { RedirectAction, Status, VisitSlot } from "@/lib/types";
 import {
   describeAnswer,
   PRIVATE_FIELDS,
+  topicsQuestion,
   VOICE_LABELS,
   VOICE_QUESTIONS,
   type VoiceAnswer,
@@ -40,6 +41,7 @@ export function SignQuestions(props: {
   onChange: <F extends QuestionField>(field: F, value: QuestionValues[F]) => void;
   areas: string[];
   companies: string[];
+  specialty: string | null; // picks which topics the topics question suggests
   startWith?: QuestionField; // setup starts asking right away
   onFinished: () => void; // the last card was answered
 }) {
@@ -61,6 +63,21 @@ export function SignQuestions(props: {
     setDone(answered);
     moveOn(field, answered);
   }
+
+  // The topics question names topics that fit this practice. The others are fixed.
+  function questionFor(field: QuestionField): string {
+    return field === "topics" ? topicsQuestion(props.specialty, props.areas) : VOICE_QUESTIONS[field];
+  }
+
+  // While one card is being answered, fetch the next card's voice so it starts without a wait.
+  // Each line is cached by the browser after the first time.
+  useEffect(() => {
+    if (how !== "say") return;
+    const later = active ? QUESTION_FIELDS.slice(QUESTION_FIELDS.indexOf(active) + 1) : QUESTION_FIELDS;
+    const next = later.find((field) => !done.includes(field));
+    if (next) fetch(`/api/voice/speak?text=${encodeURIComponent(questionFor(next))}`).catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active, how]);
 
   function renderFill(field: QuestionField) {
     const { values, onChange } = props;
@@ -115,7 +132,14 @@ export function SignQuestions(props: {
             : "border-2 border-border bg-card";
 
         return (
-          <li key={field} className={`flex flex-col gap-3 rounded-3xl p-5 ${frame}`}>
+          // Tapping anywhere on a closed card opens it, same as its Change button.
+          <li
+            key={field}
+            onClick={isActive ? undefined : () => setActive(field)}
+            className={`flex flex-col gap-3 rounded-3xl p-5 ${frame} ${
+              isActive ? "" : "cursor-pointer transition-colors hover:bg-muted/40"
+            }`}
+          >
             <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
               <h3 className="flex items-center gap-2 text-xl font-semibold">
                 {isDone && <CheckIcon className="size-5 text-status-open" aria-label="Answered" />}
@@ -139,11 +163,12 @@ export function SignQuestions(props: {
 
             {isActive && (
               <>
-                <p className="text-lg font-medium">{VOICE_QUESTIONS[field]}</p>
+                <p className="text-lg font-medium">{questionFor(field)}</p>
                 {how === "say" ? (
                   <VoiceAnswerBox
                     key={field}
                     field={field}
+                    question={questionFor(field)}
                     onAnswer={(answer) => {
                       props.onChange(field, answer as QuestionValues[typeof field]);
                       finish(field);
