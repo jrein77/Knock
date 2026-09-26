@@ -1,5 +1,5 @@
 import { createServerClient } from "@/lib/supabase/server";
-import { pingDesk } from "@/lib/ping";
+import { pingOffice } from "@/lib/ping";
 import { DEMO_OFFICE_ID, seedBrandBlocks, seedDrugs, seedOffices } from "@/lib/seed";
 import { upcomingSlots } from "@/lib/week";
 
@@ -46,6 +46,6 @@ export async function POST() {
     return Response.json({ ok: false, error: failed.error!.message }, { status: 500 });
   }
 
-  await Promise.all(seedOffices.map((office) => pingDesk(db, office.id)));
+  await Promise.all(seedOffices.map((office) => pingOffice(db, office.id)));
   return Response.json({ ok: true });
 }

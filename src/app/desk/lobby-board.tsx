@@ -1,15 +1,16 @@
 "use client";
 
 import { AnimatePresence, motion } from "motion/react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { SignEditor } from "@/components/sign-editor";
 import { Skeleton } from "@/components/ui/skeleton";
-import { deskChannel } from "@/lib/desk-channel";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { DECISION_STYLE, STATUS_STYLE } from "@/lib/status-style";
-import { supabase } from "@/lib/supabase/browser";
+import { useOfficePings } from "@/lib/use-office-pings";
 import type { DecisionKind, Office, Purpose, RedirectAction, Source, Status } from "@/lib/types";
 import { formatSlot, TIME_ZONE } from "@/lib/week";
 
@@ -72,6 +73,7 @@ async function postOverride(requestId: string, body: OverrideBody): Promise<bool
 export function LobbyBoard({ officeId }: { officeId: string }) {
   const [data, setData] = useState<DeskData | null>(null);
   const [loadFailed, setLoadFailed] = useState(false);
+  const [view, setView] = useState<"today" | "sign">("today");
 
   const load = useCallback(async () => {
     try {
@@ -84,19 +86,7 @@ export function LobbyBoard({ officeId }: { officeId: string }) {
     }
   }, [officeId]);
 
-  // Reload whenever the server pings this desk. The first load happens once the
-  // channel is listening (or fails to connect), so no ping is missed in between.
-  useEffect(() => {
-    const channel = supabase
-      .channel(deskChannel(officeId))
-      .on("broadcast", { event: "changed" }, () => load())
-      .subscribe((status) => {
-        if (status !== "CLOSED") load();
-      });
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [officeId, load]);
+  useOfficePings(officeId, load);
 
   async function override(request: DeskRequest, action: "approve" | "decline") {
     const previous = {
@@ -158,34 +148,53 @@ export function LobbyBoard({ officeId }: { officeId: string }) {
         <Badge className={`h-auto px-4 py-1.5 text-lg ${status.className}`}>{status.label}</Badge>
       </header>
 
-      <section className="flex flex-col gap-3">
-        <h2 className="text-xl font-medium text-muted-foreground">Today</h2>
+      {/* Two views only: Today and Our Sign. */}
+      <ToggleGroup
+        value={[view]}
+        onValueChange={(value) => {
+          if (value[0]) setView(value[0] as "today" | "sign");
+        }}
+        variant="outline"
+        className="grid w-full grid-cols-2"
+      >
+        <ToggleGroupItem value="today" className="h-12 w-full text-lg">
+          Today
+        </ToggleGroupItem>
+        <ToggleGroupItem value="sign" className="h-12 w-full text-lg">
+          Our Sign
+        </ToggleGroupItem>
+      </ToggleGroup>
 
-        {requests.length === 0 && (
-          <p className="py-12 text-center text-muted-foreground">
-            No requests yet today. Scan the QR code to try it.
-          </p>
-        )}
+      {view === "sign" && <SignEditor officeId={officeId} />}
 
-        {/* New QR arrivals slide in. Rows already on the board at load don't animate. */}
-        <AnimatePresence initial={false}>
-          {requests.map((request) =>
-            request.source === "qr" ? (
-              <motion.div
-                key={request.id}
-                layout
-                initial={{ opacity: 0, y: -32 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ type: "spring", stiffness: 300, damping: 28 }}
-              >
-                <ArrivalCard request={request} onOverride={override} />
-              </motion.div>
-            ) : (
-              <QuietRow key={request.id} request={request} />
-            )
+      {view === "today" && (
+        <section className="flex flex-col gap-3">
+          {requests.length === 0 && (
+            <p className="py-12 text-center text-muted-foreground">
+              No requests yet today. Scan the QR code to try it.
+            </p>
           )}
-        </AnimatePresence>
-      </section>
+
+          {/* New QR arrivals slide in. Rows already on the board at load don't animate. */}
+          <AnimatePresence initial={false}>
+            {requests.map((request) =>
+              request.source === "qr" ? (
+                <motion.div
+                  key={request.id}
+                  layout
+                  initial={{ opacity: 0, y: -32 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ type: "spring", stiffness: 300, damping: 28 }}
+                >
+                  <ArrivalCard request={request} onOverride={override} />
+                </motion.div>
+              ) : (
+                <QuietRow key={request.id} request={request} />
+              )
+            )}
+          </AnimatePresence>
+        </section>
+      )}
 
       <footer className="flex justify-center pt-6">
         <Button variant="ghost" onClick={resetDemo} className="min-h-12 text-base text-muted-foreground">

@@ -1,4 +1,4 @@
-import { pingDesk } from "@/lib/ping";
+import { pingOffice } from "@/lib/ping";
 import { createServerClient } from "@/lib/supabase/server";
 
 // The rep tapped the redirect button on their answer screen (e.g. "Book Tuesday instead").
@@ -28,6 +28,6 @@ export async function POST(_request: Request, { params }: { params: Promise<{ id
     return Response.json({ error: updated.error.message }, { status: 500 });
   }
 
-  await pingDesk(db, existing.data.office_id);
+  await pingOffice(db, existing.data.office_id);
   return Response.json({ ok: true });
 }

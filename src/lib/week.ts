@@ -6,7 +6,7 @@ import type { Day, VisitSlot } from "./types";
 export const TIME_ZONE = "America/New_York";
 export const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 
-const DAYS: Day[] = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+export const DAYS: Day[] = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
 type NyDate = { year: number; month: number; day: number; weekday: Day };
 
@@ -66,6 +66,40 @@ export function upcomingSlots(now: Date, slots: VisitSlot[]): Date[] {
   });
 
   return times.sort((a, b) => a.getTime() - b.getTime());
+}
+
+// "15:00" -> "3:00 PM"
+export function formatClock(time: string): string {
+  const [hours, minutes] = time.split(":").map(Number);
+  const suffix = hours >= 12 ? "PM" : "AM";
+  const hour12 = hours % 12 === 0 ? 12 : hours % 12;
+  return `${hour12}:${String(minutes).padStart(2, "0")} ${suffix}`;
+}
+
+// Weekly slots in calendar order: Mon before Tue, then by time.
+export function sortSlots(slots: VisitSlot[]): VisitSlot[] {
+  return [...slots].sort(
+    (a, b) => DAYS.indexOf(a.day) - DAYS.indexOf(b.day) || a.time.localeCompare(b.time)
+  );
+}
+
+// When something happened, relative to now: "Today at 3:40 PM", "Yesterday at 9:05 AM", "Mon Sep 21".
+export function formatWhen(iso: string, now: Date): string {
+  const date = new Date(iso);
+  const time = date.toLocaleTimeString("en-US", {
+    timeZone: TIME_ZONE,
+    hour: "numeric",
+    minute: "2-digit",
+  });
+  const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+  if (nyToday(date) === nyToday(now)) return `Today at ${time}`;
+  if (nyToday(date) === nyToday(yesterday)) return `Yesterday at ${time}`;
+  return date.toLocaleDateString("en-US", {
+    timeZone: TIME_ZONE,
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+  });
 }
 
 // e.g. "Tuesday Sep 29, 12:30 PM"

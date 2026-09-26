@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { decide } from "@/lib/decide";
 import { templateMessage } from "@/lib/messages";
-import { pingDesk } from "@/lib/ping";
+import { pingOffice } from "@/lib/ping";
 import { createServerClient } from "@/lib/supabase/server";
 import type { Drug, Office } from "@/lib/types";
 import { WEEK_MS } from "@/lib/week";
@@ -95,7 +95,7 @@ export async function POST(request: Request) {
   if (saved.error) {
     return Response.json({ error: saved.error.message }, { status: 500 });
   }
-  await pingDesk(db, office.id);
+  await pingOffice(db, office.id);
 
   return Response.json({
     requestId: saved.data.id,

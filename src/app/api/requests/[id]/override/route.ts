@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { pingDesk } from "@/lib/ping";
+import { pingOffice } from "@/lib/ping";
 import { createServerClient } from "@/lib/supabase/server";
 import type { Office } from "@/lib/types";
 import { upcomingSlots } from "@/lib/week";
@@ -71,6 +71,6 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     return Response.json({ error: updated.error.message }, { status: 500 });
   }
 
-  await pingDesk(db, request_.office_id);
+  await pingOffice(db, request_.office_id);
   return Response.json({ ok: true });
 }
