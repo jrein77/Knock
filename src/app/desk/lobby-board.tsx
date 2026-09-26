@@ -363,9 +363,11 @@ export function LobbyBoard({ officeId }: { officeId: string }) {
                     />
                   );
                   return request.source === "qr" ? (
+                    // layout="position": slide into place, but never scale. Plain `layout` animates
+                    // a row opening by squashing and stretching it.
                     <motion.li
                       key={request.id}
-                      layout
+                      layout="position"
                       initial={{ opacity: 0, y: -24 }}
                       animate={{ opacity: 1, y: 0 }}
                       transition={{ type: "spring", stiffness: 300, damping: 28 }}
