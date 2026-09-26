@@ -39,6 +39,7 @@ type DeskRequest = {
   original_decision: DecisionKind | null; // what the sign said before the desk overruled it
   original_reason_code: string | null;
   redirect_taken_at: string | null;
+  rep_canceled_at: string | null; // the rep canceled this visit
   rep_message: string | null;
   created_at: string;
   drugs: { brand: string } | null;
@@ -205,8 +206,11 @@ export function LobbyBoard({ officeId }: { officeId: string }) {
       query === "" ||
       [r.rep_name, r.rep_company, r.drugs?.brand].some((field) => field?.toLowerCase().includes(query))
   );
-  const shown = matching.filter((r) => filter === "all" || r.decision === filter);
-  const countOf = (decision: DecisionKind) => matching.filter((r) => r.decision === decision).length;
+  // A visit the rep canceled isn't "Accepted" anymore; it only shows under All.
+  const isKind = (r: DeskRequest, decision: DecisionKind) =>
+    r.decision === decision && !(decision === "accepted" && r.rep_canceled_at);
+  const shown = matching.filter((r) => filter === "all" || isKind(r, filter));
+  const countOf = (decision: DecisionKind) => matching.filter((r) => isKind(r, decision)).length;
 
   function goToDay(day: string) {
     setDay(day === data!.today ? null : day);
@@ -572,8 +576,9 @@ function RequestRow({
   onToggle: () => void;
   onOverride?: (request: DeskRequest, action: "approve" | "decline") => void;
 }) {
-  const booked = request.decision === "accepted";
-  const canAct = onOverride && !(booked && request.purpose === "safety_notice");
+  const canceled = Boolean(request.rep_canceled_at);
+  const booked = request.decision === "accepted" && !canceled;
+  const canAct = onOverride && !canceled && !(booked && request.purpose === "safety_notice");
   const where = request.source === "qr" ? "at the desk" : "fit list";
 
   return (
@@ -593,18 +598,26 @@ function RequestRow({
               formatTime(request.created_at),
               where,
               request.overridden && "overridden",
+              canceled && "canceled by rep",
               request.rep_message && "message",
             ]
               .filter(Boolean)
               .join(" · ")}
           </span>
         </span>
-        <DecisionBadge decision={request.decision} />
+        {canceled ? (
+          <Badge className="h-auto bg-muted px-3 py-1 text-base text-muted-foreground">Canceled</Badge>
+        ) : (
+          <DecisionBadge decision={request.decision} />
+        )}
       </button>
 
       {/* Details sit right on the row: plain lines, no boxes inside boxes. */}
       {expanded && (
         <div className="flex flex-col gap-2 px-4 pb-4 text-lg">
+          {canceled && (
+            <p className="font-medium">The rep canceled this visit at {formatTime(request.rep_canceled_at!)}.</p>
+          )}
           <DecisionDetail request={request} />
           {request.rep_message && (
             <p>

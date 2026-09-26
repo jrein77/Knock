@@ -50,6 +50,7 @@ export async function POST(request: Request) {
       .select("id", { count: "exact", head: true })
       .eq("office_id", body.officeId)
       .eq("decision", "accepted")
+      .is("rep_canceled_at", null)
       .gte("slot_at", now.toISOString())
       .lt("slot_at", new Date(now.getTime() + WEEK_MS).toISOString()),
   ]);

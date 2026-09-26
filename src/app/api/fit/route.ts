@@ -55,6 +55,23 @@ export async function GET(request: Request) {
   const db = createServerClient();
   const now = new Date();
 
+  // The rep's own upcoming visits (from their saved rep id), so the list can show them,
+  // let them cancel, and grey out times they're already booked.
+  const repId = params.get("repId");
+  const myVisits =
+    repId && /^[0-9a-f-]{36}$/.test(repId)
+      ? (
+          await db
+            .from("requests")
+            .select("id, slot_at, offices(name)")
+            .eq("rep_id", repId)
+            .eq("decision", "accepted")
+            .is("rep_canceled_at", null)
+            .gte("slot_at", now.toISOString())
+            .order("slot_at")
+        ).data ?? []
+      : [];
+
   const [officesResult, drugsResult, blocksResult, acceptedResult] = await Promise.all([
     db.from("offices").select("*").order("name"),
     db.from("drugs").select("*").in("id", drugIds),
@@ -63,6 +80,7 @@ export async function GET(request: Request) {
       .from("requests")
       .select("office_id")
       .eq("decision", "accepted")
+      .is("rep_canceled_at", null)
       .gte("slot_at", now.toISOString())
       .lt("slot_at", new Date(now.getTime() + WEEK_MS).toISOString()),
   ]);
@@ -139,5 +157,12 @@ export async function GET(request: Request) {
       a.name.localeCompare(b.name)
   );
 
-  return Response.json({ offices: fits });
+  return Response.json({
+    offices: fits,
+    myVisits: myVisits.map((visit) => ({
+      id: visit.id,
+      slotAt: visit.slot_at,
+      officeName: (visit.offices as unknown as { name: string } | null)?.name ?? "an office",
+    })),
+  });
 }

@@ -24,7 +24,7 @@ export async function GET(request: Request) {
     db
       .from("requests")
       .select(
-        "id, rep_name, rep_company, purpose, source, decision, reason_code, redirect_action, slot_at, overridden, overridden_at, original_decision, original_reason_code, redirect_taken_at, rep_message, created_at, drugs(brand)"
+        "id, rep_name, rep_company, purpose, source, decision, reason_code, redirect_action, slot_at, overridden, overridden_at, original_decision, original_reason_code, redirect_taken_at, rep_canceled_at, rep_message, created_at, drugs(brand)"
       )
       .eq("office_id", officeId)
       .gte("created_at", nyDayStart(day).toISOString())

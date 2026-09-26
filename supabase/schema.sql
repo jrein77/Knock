@@ -63,6 +63,7 @@ create table requests (
   original_reason_code text,
   message_handled boolean not null default false, -- desk has dealt with rep_message
   redirect_taken_at timestamptz,   -- when the rep tapped the redirect button
+  rep_canceled_at timestamptz,     -- when the rep canceled a visit they had booked
   created_at timestamptz not null default now()
 );
 

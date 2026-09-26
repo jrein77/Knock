@@ -9,6 +9,7 @@ export type SavedRep = {
   company: string;
   email: string;
   drugIds?: string[]; // their products, picked once on the fit list
+  savedOfficeIds?: string[]; // offices they go back to, pinned at the top of the fit list
 };
 
 export const EMPTY_REP: SavedRep = { id: null, name: "", company: "", email: "" };

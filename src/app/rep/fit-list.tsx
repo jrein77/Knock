@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 import { DrugTiles } from "@/components/drug-tiles";
 import { LeaveNote } from "@/components/leave-note";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -30,6 +31,19 @@ type FitOffice = {
   times: { start: string; end: string | null }[]; // good fits: this week's visit times to tap
   distanceMiles: number | null; // null without the rep's location
 };
+
+// One of the rep's own upcoming visits.
+type MyVisit = { id: string; slotAt: string; officeName: string };
+
+// A rep can't be in two places at once: times this close to a booked visit are greyed out.
+const CONFLICT_MINUTES = 30;
+
+function clashingVisit(start: string, visits: MyVisit[]): MyVisit | undefined {
+  const time = new Date(start).getTime();
+  return visits.find(
+    (visit) => Math.abs(new Date(visit.slotAt).getTime() - time) < CONFLICT_MINUTES * 60 * 1000
+  );
+}
 
 // Offices farther than this collapse into "Farther away".
 const NEARBY_MILES = 10;
@@ -179,8 +193,10 @@ function Offices({
   onChange: () => void;
 }) {
   const [offices, setOffices] = useState<FitOffice[] | null>(null);
+  const [myVisits, setMyVisits] = useState<MyVisit[]>([]);
   const [loadFailed, setLoadFailed] = useState(false);
   const [expanded, setExpanded] = useState<string | null>(null); // one open row at a time
+  const [search, setSearch] = useState("");
   const [here, setHere] = useState<Here | null>(null);
   const [locating, setLocating] = useState<"asking" | "found" | "unavailable">(() =>
     "geolocation" in navigator ? "asking" : "unavailable"
@@ -214,14 +230,17 @@ function Offices({
         params.set("lat", String(here.lat));
         params.set("lng", String(here.lng));
       }
+      if (rep.id) params.set("repId", rep.id);
       const response = await fetch(`/api/fit?${params}`, { cache: "no-store" });
       if (!response.ok) throw new Error();
-      setOffices((await response.json()).offices);
+      const data = await response.json();
+      setOffices(data.offices);
+      setMyVisits(data.myVisits ?? []);
       setLoadFailed(false);
     } catch {
       setLoadFailed(true);
     }
-  }, [rep.company, drugIds, here]);
+  }, [rep.company, rep.id, drugIds, here]);
 
   // Door Signs are public, so the phone can listen for sign changes directly.
   useEffect(() => {
@@ -239,8 +258,28 @@ function Offices({
   const myDrugs = drugs.filter((drug) => rep.drugIds?.includes(drug.id));
   const productsText = myDrugs.length === 1 ? myDrugs[0].brand : "your products";
 
-  // Nearby offices by fit; far ones (with a known location) collapse at the bottom.
-  const all = offices ?? [];
+  // Saved offices sit at the top, apart from the rest.
+  const savedIds = rep.savedOfficeIds ?? [];
+  function toggleSaved(officeId: string) {
+    const next = savedIds.includes(officeId)
+      ? savedIds.filter((id) => id !== officeId)
+      : [...savedIds, officeId];
+    const updated = { ...rep, savedOfficeIds: next };
+    saveRep(updated);
+    setRep(updated);
+  }
+
+  // Searching shows one list of matches: by office, neighborhood, specialty, or topic.
+  const query = search.trim().toLowerCase();
+  const matches = (offices ?? []).filter((office) =>
+    [office.name, office.neighborhood, office.specialty, ...office.topics].some((field) =>
+      field?.toLowerCase().includes(query)
+    )
+  );
+
+  // Otherwise: saved first, then nearby offices by fit; far ones collapse at the bottom.
+  const saved = (offices ?? []).filter((office) => savedIds.includes(office.id));
+  const all = (offices ?? []).filter((office) => !savedIds.includes(office.id));
   const isFar = (office: FitOffice) => office.distanceMiles !== null && office.distanceMiles > NEARBY_MILES;
   const nearby = all.filter((office) => !isFar(office));
   const goodFits = nearby.filter((office) => office.fit === "green");
@@ -248,9 +287,32 @@ function Offices({
   const notNow = nearby.filter((office) => office.fit === "grey");
   const farAway = all.filter(isFar);
 
+  // Cancel one of the rep's visits, with Undo.
+  async function cancelVisit(visit: MyVisit, undo = false) {
+    const response = await fetch(`/api/requests/${visit.id}/rep-cancel`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ repId: rep.id, undo }),
+    });
+    if (!response.ok) {
+      toast.error("Couldn't reach the office. Please try again.");
+      return;
+    }
+    load();
+    if (!undo) {
+      toast(`Canceled your visit at ${visit.officeName}`, {
+        duration: 10_000,
+        action: { label: "Undo", onClick: () => cancelVisit(visit, true) },
+      });
+    }
+  }
+
   const rowFor = (office: FitOffice) => (
     <OfficeRow
       key={office.id}
+      myVisits={myVisits}
+      saved={savedIds.includes(office.id)}
+      onToggleSave={() => toggleSaved(office.id)}
       office={office}
       rep={rep}
       setRep={setRep}
@@ -292,8 +354,57 @@ function Offices({
           </>
         ))}
 
+      {/* The rep's own upcoming visits, to keep track of and cancel. */}
+      {myVisits.length > 0 && (
+        <section className="flex flex-col gap-2">
+          <h2 className="text-lg font-semibold">Your visits ({myVisits.length})</h2>
+          <ul className="divide-y overflow-hidden rounded-2xl border bg-card">
+            {myVisits.map((visit) => (
+              <li key={visit.id} className="flex items-center justify-between gap-3 px-4 py-3">
+                <span className="min-w-0">
+                  <span className="block text-lg font-semibold">{visit.officeName}</span>
+                  <span className="block text-base text-muted-foreground">
+                    {formatVisit(visit.slotAt, null, true)}
+                  </span>
+                </span>
+                <Button
+                  variant="outline"
+                  onClick={() => cancelVisit(visit)}
+                  className="h-12 shrink-0 px-4 text-lg"
+                >
+                  Cancel
+                </Button>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
       {offices && (
+        <Input
+          aria-label="Search offices"
+          placeholder="Search offices, neighborhoods, or topics"
+          value={search}
+          onChange={(event) => setSearch(event.target.value)}
+          className="h-12 text-lg md:text-lg"
+        />
+      )}
+
+      {offices && query !== "" && (
+        matches.length > 0 ? (
+          <OfficeSection title="Matches" count={matches.length}>
+            {matches.map(rowFor)}
+          </OfficeSection>
+        ) : (
+          <p className="py-6 text-center text-muted-foreground">No offices match that.</p>
+        )
+      )}
+
+      {offices && query === "" && (
         <>
+          <OfficeSection title="Saved" count={saved.length}>
+            {saved.map(rowFor)}
+          </OfficeSection>
           <OfficeSection title={`Good fits for ${productsText}`} count={goodFits.length}>
             {goodFits.map(rowFor)}
           </OfficeSection>
@@ -350,6 +461,9 @@ function OfficeSection({
 // One office as a line item: fit color, name, where, and the one line that matters.
 // Tapping it shows what they want, their visit times, and the request button.
 function OfficeRow({
+  myVisits,
+  saved,
+  onToggleSave,
   office,
   rep,
   setRep,
@@ -357,6 +471,9 @@ function OfficeRow({
   expanded,
   onToggle,
 }: {
+  myVisits: MyVisit[];
+  saved: boolean;
+  onToggleSave: () => void;
   office: FitOffice;
   rep: SavedRep;
   setRep: (rep: SavedRep) => void;
@@ -490,18 +607,26 @@ function OfficeRow({
               <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                 {office.times.map((time) => {
                   const picked = pickedTime?.start === time.start;
+                  // Already booked somewhere else around then: can't be in two places at once.
+                  const clash = clashingVisit(time.start, myVisits);
                   return (
                     // Picked = heavy outline, so the solid button below is clearly the one that sends.
                     <Button
                       key={time.start}
                       variant="outline"
                       aria-pressed={picked}
+                      disabled={Boolean(clash)}
                       onClick={() => setPickedTime(picked ? null : time)}
                       className={`h-auto min-h-12 justify-start px-4 py-2 text-lg whitespace-normal ${
                         picked ? "border-2 border-foreground bg-muted font-semibold" : ""
                       }`}
                     >
-                      {formatVisit(time.start, time.end, true)}
+                      <span className="flex flex-col">
+                        <span>{formatVisit(time.start, time.end, true)}</span>
+                        {clash && (
+                          <span className="text-base font-normal">Already booked at {clash.officeName}</span>
+                        )}
+                      </span>
                     </Button>
                   );
                 })}
@@ -524,6 +649,9 @@ function OfficeRow({
             </Button>
           )}
           {error && <p role="alert">{error}</p>}
+          <Button variant="ghost" onClick={onToggleSave} className="h-12 self-start px-0 text-lg underline">
+            {saved ? "Remove from saved" : "Save this office"}
+          </Button>
         </div>
       )}
     </li>

@@ -69,6 +69,7 @@ export async function loadSignals(
     db
       .from("requests")
       .select("id, office_id, rep_company, drug_id, purpose, decision, reason_code, created_at")
+      .is("rep_canceled_at", null) // a visit the rep canceled isn't demand anymore
       .gte("created_at", since),
     db.from("sign_history").select("office_id, before, after, created_at").gte("created_at", since),
     db.from("rep_notes").select("office_id, request_id, rep_name, body").gte("created_at", since),
