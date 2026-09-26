@@ -172,8 +172,34 @@ export function generateHistory(now: Date) {
       slot_at: decision.slotAt?.toISOString() ?? null,
       message: templateMessage(decision, office.name),
       created_at: draft.time.toISOString(),
+      // Filled in below for the few visits that get canceled later.
+      rep_canceled_at: null as string | null,
+      overridden: false,
+      overridden_at: null as string | null,
+      original_decision: null as string | null,
+      original_reason_code: null as string | null,
     };
   });
+
+  // 2b. A few booked visits get canceled a day later: some by the rep, some by the practice.
+  //     Demand Signals shows both kinds of drop-off.
+  for (const request of requests) {
+    if (request.decision !== "accepted" || !request.slot_at) continue;
+    const canceledAt = new Date(new Date(request.created_at).getTime() + DAY_MS).toISOString();
+    const roll = random();
+    if (roll < 0.1) {
+      request.rep_canceled_at = canceledAt;
+    } else if (roll < 0.18) {
+      // The practice's desk took the visit back ("Cancel visit").
+      request.overridden = true;
+      request.overridden_at = canceledAt;
+      request.original_decision = "accepted";
+      request.original_reason_code = request.reason_code;
+      request.decision = "declined";
+      request.redirect_action = "leave_materials";
+      request.slot_at = null;
+    }
+  }
 
   // 3. Three reps who thought Peachtree Family got it wrong.
   const peachtreeNos = requests.filter(

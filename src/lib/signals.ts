@@ -1,45 +1,50 @@
 import "server-only";
 import { effectiveStatus } from "./decide";
 import type { SignSnapshot } from "./sign";
-import { STATUS_STYLE } from "./status-style";
+import { REDIRECT_OPTION_LABELS, STATUS_STYLE } from "./status-style";
 import type { createServerClient } from "./supabase/server";
-import type { Day, DecisionKind, Drug, Office, Purpose } from "./types";
-import { DAY_NAMES, DAYS, nyWeekday } from "./week";
+import type { Day, DecisionKind, Drug, Office, Purpose, RedirectAction } from "./types";
+import { currentSlots, DAY_NAMES, DAYS, formatClock, nyWeekday } from "./week";
 
-// Demand Signals: plain counts over requests and Door Signs, written as short sentences.
+// Demand Signals: what practices have declared on their Door Signs (not prescribing data),
+// and what happened when reps asked. Plain counts, written as sentences a brand team can act on.
 //
 // Privacy rules:
 // - Brand blocks never appear. "blocked" is counted as "not taking visits".
-// - A single-brand view only uses that brand's own requests and notes, plus office-level
-//   public data (status, topics, visit times). Other brands' counts are never shown.
+// - A single-brand view only uses that brand's own requests and notes, plus practice-level
+//   public data (status, topics, visit times, how they take reps). Other brands' counts never show.
 
 export const BRANDS = ["Norvance", "Helix Pharma", "Meridian Bio", "Aerion", "Lumen Therapeutics"];
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-export type UnmetDemand = {
-  area: string;
-  sentence: string;
-  offices: string[]; // offices that want the area and had no accepted visit about it
-  copyText: string;
-};
-
-export type Misses = {
-  sentence: string;
-  parts: { label: string; count: number; tone: "topics" | "closed" | "neutral" }[];
-  wantedAt?: { title: string; offices: string[] }; // where the brand's areas are wanted
-};
-
 export type Signals = {
   whose: string; // "Norvance reps" or "all reps"
-  areas: string[]; // the brand's therapeutic areas (all areas for all brands)
-  requests: number;
-  accepted: number;
-  acceptanceRate: number | null; // percent of visit requests, or null with none
-  wantedAt: number; // open offices whose sign wants one of `areas`
-  unmet: UnmetDemand[];
-  misses: Misses | null;
-  worthKnowing: { key: string; text: string; details?: string[] }[];
+  areas: string[]; // the brand's therapeutic areas (every area for all brands)
+  practicesDeclared: number; // practices with a Door Sign, for the footnote
+  headline: string; // the one thing to know
+  numbers: { value: string; label: string }[];
+  demandByTopic: { area: string; asking: number; visited: number }[];
+  unmet: {
+    area: string;
+    sentence: string; // full sentence (used as the headline)
+    title: string; // short, for the card under the headline
+    offices: string[];
+    copyText: string;
+  }[];
+  channels: { sentence: string; rows: { label: string; count: number }[]; of: number } | null;
+  bestTime: string | null;
+  misses: {
+    sentence: string;
+    parts: { label: string; count: number; tone: "topics" | "closed" | "neutral" }[];
+  } | null;
+  cancellations: {
+    sentence: string;
+    byRep: number;
+    byPractice: number;
+    practices: { name: string; byRep: number; byPractice: number }[]; // where it happens most
+  } | null;
+  changes: { key: string; text: string; details?: string[] }[];
 };
 
 type RequestRow = {
@@ -51,9 +56,23 @@ type RequestRow = {
   decision: DecisionKind;
   reason_code: string | null;
   created_at: string;
+  rep_canceled_at: string | null;
+  overridden: boolean;
+  original_decision: string | null;
 };
 type NoteRow = { office_id: string; request_id: string | null; rep_name: string | null; body: string };
 type HistoryRow = { office_id: string; before: SignSnapshot; after: SignSnapshot; created_at: string };
+
+function count(n: number, one: string, many: string) {
+  return `${n} ${n === 1 ? one : many}`;
+}
+
+// The most common item in a list.
+function mostCommon<T>(items: T[]): T {
+  const counts = new Map<T, number>();
+  for (const item of items) counts.set(item, (counts.get(item) ?? 0) + 1);
+  return [...counts.entries()].sort((a, b) => b[1] - a[1])[0][0];
+}
 
 export async function loadSignals(
   db: ReturnType<typeof createServerClient>,
@@ -68,8 +87,9 @@ export async function loadSignals(
     db.from("drugs").select("*"),
     db
       .from("requests")
-      .select("id, office_id, rep_company, drug_id, purpose, decision, reason_code, created_at")
-      .is("rep_canceled_at", null) // a visit the rep canceled isn't demand anymore
+      .select(
+        "id, office_id, rep_company, drug_id, purpose, decision, reason_code, created_at, rep_canceled_at, overridden, original_decision"
+      )
       .gte("created_at", since),
     db.from("sign_history").select("office_id, before, after, created_at").gte("created_at", since),
     db.from("rep_notes").select("office_id, request_id, rep_name, body").gte("created_at", since),
@@ -81,7 +101,10 @@ export async function loadSignals(
 
   const offices = officesResult.data as Office[];
   const drugs = drugsResult.data as Drug[];
-  const allRequests = requestsResult.data as RequestRow[];
+  // Every request, including canceled ones (for the cancellations section)...
+  const everyRequest = requestsResult.data as RequestRow[];
+  // ...and the ones that still stand. A visit the rep canceled isn't demand anymore.
+  const allRequests = everyRequest.filter((r) => !r.rep_canceled_at);
   const history = historyResult.data as HistoryRow[];
   const notes = notesResult.data as NoteRow[];
 
@@ -91,58 +114,118 @@ export async function loadSignals(
   // Whose request is it? The drug's company (what reps type can vary), else the rep's company.
   const companyOf = (r: RequestRow) => (r.drug_id && drugById.get(r.drug_id)?.company) || r.rep_company;
   const isVisit = (r: RequestRow) => r.purpose === "visit" || r.purpose === "lunch";
+  const areaOf = (r: RequestRow) => (r.drug_id ? drugById.get(r.drug_id)?.area : undefined);
 
   const requests = brand ? allRequests.filter((r) => companyOf(r) === brand) : allRequests;
   const areas = [...new Set(drugs.filter((d) => !brand || d.company === brand).map((d) => d.area))].sort();
   const openOffices = offices.filter((office) => effectiveStatus(office, now) !== "closed");
-  const wantsOurAreas = (office: Office) => office.topics.some((topic) => areas.includes(topic));
+  const asking = openOffices.filter((office) => office.topics.some((topic) => areas.includes(topic)));
   const whose = brand ? `${brand} reps` : "all reps";
+  // Wording that works for one brand or for all of them.
+  const brandVisit = brand ? `${brand} visit` : "visit"; // "a Norvance visit" / "a visit"
+  const yourTopics = brand ? "your topics" : "a topic";
   const inWindow = `in the last ${days} days`;
 
-  // --- The three numbers ---
+  // --- Demand by topic: practices asking for each area, and which of them got a visit about it ---
+  const byTopic = areas
+    .map((area) => {
+      const askingForArea = openOffices.filter((office) => office.topics.includes(area));
+      const visitedIds = new Set(
+        requests
+          .filter((r) => r.decision === "accepted" && isVisit(r) && areaOf(r) === area)
+          .map((r) => r.office_id)
+      );
+      return {
+        area,
+        asking: askingForArea.length,
+        visited: askingForArea.filter((office) => visitedIds.has(office.id)).length,
+        waiting: askingForArea.filter((office) => !visitedIds.has(office.id)),
+      };
+    })
+    .filter((row) => row.asking > 0)
+    .sort((a, b) => b.asking - a.asking);
+
+  // --- Where you're wanted but not visiting ---
+  const unmet = byTopic
+    .filter((row) => row.waiting.length > 0)
+    .sort((a, b) => b.waiting.length - a.waiting.length)
+    .map((row) => {
+      const names = row.waiting.map((office) => office.name);
+      const outcome =
+        row.visited === 0
+          ? `None had an accepted ${brandVisit} about it ${inWindow}.`
+          : `${row.waiting.length} of them had no accepted ${brandVisit} about it ${inWindow}.`;
+      return {
+        area: row.area,
+        sentence: `${count(row.asking, "practice is", "practices are")} asking for ${row.area} information. ${outcome}`,
+        title: `${row.area}: ${row.waiting.length} of ${row.asking} practices asking have had no ${brandVisit}`,
+        offices: names,
+        copyText: `Practices asking for ${row.area} information:\n${names.map((n) => `- ${n}`).join("\n")}`,
+      };
+    });
+
+  // --- The headline and three numbers ---
   const accepted = requests.filter((r) => r.decision === "accepted" && isVisit(r)).length;
   const visitRequests = requests.filter(isVisit).length;
-  const acceptanceRate = visitRequests > 0 ? Math.round((accepted / visitRequests) * 100) : null;
-  const wantedAt = openOffices.filter(wantsOurAreas).length;
+  const welcomeRate = visitRequests > 0 ? Math.round((accepted / visitRequests) * 100) : null;
 
-  // --- Unmet demand: offices that want an area, with no accepted visit about it ---
-  const unmet: UnmetDemand[] = [];
-  for (const area of areas) {
-    const wanting = openOffices.filter((office) => office.topics.includes(area));
-    if (wanting.length === 0) continue;
+  const headline =
+    unmet.length > 0
+      ? unmet[0].sentence
+      : asking.length > 0
+        ? `${count(asking.length, "practice is", "practices are")} asking for ${areas.join(" or ")}, and every one had a visit ${inWindow}.`
+        : `No practices are asking for ${areas.join(" or ")} right now.`;
 
-    const visitedIds = new Set(
-      requests
-        .filter((r) => r.decision === "accepted" && isVisit(r))
-        .filter((r) => r.drug_id && drugById.get(r.drug_id)?.area === area)
-        .map((r) => r.office_id)
-    );
-    const waiting = wanting.filter((office) => !visitedIds.has(office.id));
-    if (waiting.length === 0) continue;
+  const numbers = [
+    {
+      value: String(asking.length),
+      label: brand ? `practices asking for ${areas.join(" or ")}` : "practices asking for a topic",
+    },
+    {
+      value: welcomeRate === null ? "None" : `${welcomeRate}%`,
+      label: `of ${whose}' visit requests welcomed`,
+    },
+    { value: String(requests.length), label: `requests from ${whose} ${inWindow}` },
+  ];
 
-    const who = brand ?? "any brand";
-    const wants = count(wanting.length, "office wants", "offices want");
-    const outcome =
-      waiting.length === wanting.length
-        ? `None had an accepted ${who} visit about it ${inWindow}.`
-        : `${waiting.length} of them had no accepted ${who} visit about it ${inWindow}.`;
-    const offices = waiting.map((office) => office.name);
-    unmet.push({
-      area,
-      sentence: `${wants} ${area} info. ${outcome}`,
-      offices,
-      copyText: `Offices that want ${area} info:\n${offices.map((name) => `- ${name}`).join("\n")}`,
-    });
+  // --- How they want to hear from you: what practices asking for your topics offer instead ---
+  let channels: Signals["channels"] = null;
+  if (asking.length > 0) {
+    const options: RedirectAction[] = ["virtual", "drop_samples", "leave_materials"];
+    const rows = options
+      .map((option) => ({
+        option,
+        label: REDIRECT_OPTION_LABELS[option],
+        count: asking.filter((office) => office.redirect_options.includes(option)).length,
+      }))
+      .sort((a, b) => b.count - a.count);
+    const top = rows[0];
+    const takes: Record<string, string> = {
+      virtual: "offer virtual meetings, a way to reach them without a visit",
+      drop_samples: "take samples at the front desk",
+      leave_materials: "take materials at the front desk",
+    };
+    channels = {
+      sentence: `${top.count} of the ${count(asking.length, "practice", "practices")} asking for ${yourTopics} ${takes[top.option]}.`,
+      rows: rows.map(({ label, count: n }) => ({ label, count: n })),
+      of: asking.length,
+    };
   }
-  unmet.sort((a, b) => b.offices.length - a.offices.length);
 
-  // --- Why requests didn't become visits. "blocked" and "closed" are both "not taking visits". ---
-  let misses: Misses | null = null;
+  // --- Best time to ask: the day and time most practices asking for your topics see reps ---
+  const slots = asking.flatMap((office) => currentSlots(office.visit_slots, now));
+  const bestTime =
+    slots.length > 0
+      ? `Most practices asking for ${yourTopics} see reps on ${DAY_NAMES[mostCommon(slots.map((s) => s.day))]}s, around ${formatClock(mostCommon(slots.map((s) => s.time)))}.`
+      : null;
+
+  // --- Why visits were declined. "blocked" and "closed" are both "not taking visits". ---
+  let misses: Signals["misses"] = null;
   const missed = requests.filter((r) => r.decision !== "accepted");
   if (missed.length > 0) {
     const parts = [
       {
-        label: "Topic not wanted",
+        label: "Topic not asked for",
         count: missed.filter((r) => r.reason_code === "off_topic").length,
         tone: "topics" as const,
       },
@@ -153,36 +236,66 @@ export async function loadSignals(
       },
       {
         label: "No open time",
-        count: missed.filter((r) =>
-          ["cap_full", "no_slots", "time_unavailable"].includes(r.reason_code ?? "")
-        ).length,
+        count: missed.filter((r) => ["cap_full", "no_slots", "time_unavailable"].includes(r.reason_code ?? ""))
+          .length,
         tone: "neutral" as const,
       },
     ];
     const top = [...parts].sort((a, b) => b.count - a.count)[0];
     const share = Math.round((top.count / missed.length) * 100);
     const because: Record<string, string> = {
-      "Topic not wanted": "the office doesn't list that topic",
-      "Not taking visits": "the office wasn't taking visits",
-      "No open time": "the office had no open time that week",
+      "Topic not asked for": "the practice hadn't asked for that topic",
+      "Not taking visits": "the practice wasn't taking visits",
+      "No open time": "the practice had no open time that week",
     };
     misses = {
-      sentence: `${count(missed.length, "request", "requests")} from ${whose} didn't become visits ${inWindow}. ${share}% were because ${because[top.label]}.`,
+      sentence: `${share}% of the ${count(missed.length, "request", "requests")} that didn't become visits were because ${because[top.label]}.`,
       parts,
-      wantedAt:
-        brand && top.label === "Topic not wanted"
-          ? {
-              title: `Offices that do want ${areas.join(" or ")}`,
-              offices: openOffices.filter(wantsOurAreas).map((office) => office.name),
-            }
-          : undefined,
     };
   }
 
-  // --- Worth knowing: short, specific lines ---
-  const worthKnowing: Signals["worthKnowing"] = [];
+  // --- Cancellations: booked visits that fell through, and which side called them off ---
+  let cancellations: Signals["cancellations"] = null;
+  {
+    // Visits only (not sample drop-offs or safety notices), for this brand or all.
+    const ours = (brand ? everyRequest.filter((r) => companyOf(r) === brand) : everyRequest).filter(isVisit);
+    const canceledByRep = (r: RequestRow) => r.decision === "accepted" && Boolean(r.rep_canceled_at);
+    const canceledByPractice = (r: RequestRow) =>
+      r.overridden && r.original_decision === "accepted" && r.decision === "declined";
+    // Everything that was booked at some point: still booked, or canceled by either side.
+    const booked = ours.filter((r) => r.decision === "accepted" || canceledByPractice(r));
+    const byRep = ours.filter(canceledByRep);
+    const byPractice = ours.filter(canceledByPractice);
 
-  // Offices that went from Closed to taking visits.
+    if (booked.length > 0) {
+      const perPractice = new Map<string, { byRep: number; byPractice: number }>();
+      for (const r of [...byRep, ...byPractice]) {
+        const entry = perPractice.get(r.office_id) ?? { byRep: 0, byPractice: 0 };
+        if (canceledByRep(r)) entry.byRep += 1;
+        else entry.byPractice += 1;
+        perPractice.set(r.office_id, entry);
+      }
+      const canceled = byRep.length + byPractice.length;
+      cancellations = {
+        sentence:
+          canceled === 0
+            ? `None of the ${count(booked.length, "booked visit", "booked visits")} ${inWindow} ${booked.length === 1 ? "was" : "were"} canceled.`
+            : `${canceled} of ${count(booked.length, "booked visit", "booked visits")} ${
+                canceled === 1 ? "was" : "were"
+              } canceled ${inWindow}: ${byRep.length} by reps, ${byPractice.length} by practices.`,
+        byRep: byRep.length,
+        byPractice: byPractice.length,
+        practices: [...perPractice.entries()]
+          .map(([officeId, entry]) => ({ name: officeName.get(officeId) ?? "A practice", ...entry }))
+          .sort((a, b) => b.byRep + b.byPractice - (a.byRep + a.byPractice))
+          .slice(0, 3),
+      };
+    }
+  }
+
+  // --- What changed: practices opening up, filling early, and reps who disagreed ---
+  const changes: Signals["changes"] = [];
+
   for (const change of history) {
     if (change.before.status !== "closed" || change.after.status === "closed") continue;
     const topics = change.after.topics;
@@ -190,17 +303,17 @@ export async function loadSignals(
     const ageDays = Math.floor((now.getTime() - new Date(change.created_at).getTime()) / DAY_MS);
     const when = ageDays === 0 ? "today" : ageDays === 1 ? "yesterday" : `${ageDays} days ago`;
     const label = STATUS_STYLE[change.after.status].label.replace(" to reps", "");
-    const wants = topics.length > 0 ? ` It wants ${topics.join(", ")}.` : "";
-    worthKnowing.push({
+    const wants = topics.length > 0 ? ` It's asking for ${topics.join(", ")}.` : "";
+    changes.push({
       key: `opened-${change.office_id}-${change.created_at}`,
       text: `${officeName.get(change.office_id)} switched from Closed to ${label} ${when}.${wants}`,
     });
   }
 
-  // Offices that run out of room early in the week (a pattern, never a count).
+  // Practices that run out of room early in the week (a pattern, never a count).
   const minWeeks = days <= 7 ? 1 : 2;
   for (const office of offices) {
-    if (brand && !wantsOurAreas(office) && office.status !== "open") continue;
+    if (brand && !asking.includes(office)) continue;
     const firstFullDay = new Map<string, Day>();
     for (const r of allRequests) {
       if (r.office_id !== office.id || r.reason_code !== "cap_full") continue;
@@ -210,20 +323,19 @@ export async function loadSignals(
       if (!firstFullDay.has(monday)) firstFullDay.set(monday, weekday);
     }
     if (firstFullDay.size < minWeeks) continue;
-
+    const dayCounts = new Map<Day, number>();
+    for (const day of firstFullDay.values()) dayCounts.set(day, (dayCounts.get(day) ?? 0) + 1);
     // The day it most often fills. On a tie, the later day (the safer advice).
-    const tally = new Map<Day, number>();
-    for (const day of firstFullDay.values()) tally.set(day, (tally.get(day) ?? 0) + 1);
-    const [fillDay] = [...tally.entries()].sort(
+    const [fillDay] = [...dayCounts.entries()].sort(
       (a, b) => b[1] - a[1] || DAYS.indexOf(b[0]) - DAYS.indexOf(a[0])
     )[0];
-    worthKnowing.push({
+    changes.push({
       key: `fills-${office.id}`,
       text: `${office.name} is usually full by ${DAY_NAMES[fillDay]}. Ask early in the week.`,
     });
   }
 
-  // Reps who think the sign got it wrong. Brand view: that brand's reps only.
+  // Reps who think a sign got it wrong. Brand view: that brand's reps only.
   const requestById = new Map(allRequests.map((r) => [r.id, r]));
   const visibleNotes = notes.filter((note) => {
     if (!brand) return true;
@@ -232,7 +344,7 @@ export async function loadSignals(
   });
   for (const officeId of new Set(visibleNotes.map((note) => note.office_id))) {
     const officeNotes = visibleNotes.filter((note) => note.office_id === officeId);
-    worthKnowing.push({
+    changes.push({
       key: `notes-${officeId}`,
       text: `${count(officeNotes.length, "rep", "reps")} said the sign at ${officeName.get(officeId)} got it wrong.`,
       details: officeNotes.map((note) => `“${note.body}” (${note.rep_name ?? "a rep"})`),
@@ -242,16 +354,15 @@ export async function loadSignals(
   return {
     whose,
     areas,
-    requests: requests.length,
-    accepted,
-    acceptanceRate,
-    wantedAt,
+    practicesDeclared: offices.length,
+    headline,
+    numbers,
+    demandByTopic: byTopic.map(({ area, asking: n, visited }) => ({ area, asking: n, visited })),
     unmet,
+    channels,
+    bestTime,
     misses,
-    worthKnowing,
+    cancellations,
+    changes,
   };
-}
-
-function count(n: number, one: string, many: string) {
-  return `${n} ${n === 1 ? one : many}`;
 }

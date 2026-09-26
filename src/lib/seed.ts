@@ -238,9 +238,23 @@ const LOCATIONS: Record<string, { lat: number; lng: number }> = {
   "o4w-primary": { lat: 33.765, lng: -84.371 },
 };
 
+// What each office offers instead of a visit, so practices differ in how they want to hear
+// from reps (Demand Signals shows this). Offices not listed, including Peachtree, offer all four.
+const REDIRECT_OPTIONS: Record<string, RedirectAction[]> = {
+  "decatur-heart": ["drop_samples", "next_slot"],
+  "grantpark-internal": ["virtual", "drop_samples", "next_slot"],
+  "vahi-endo": ["virtual", "leave_materials"],
+  "sandysprings-family": ["virtual", "next_slot"],
+  "marietta-cardio": ["virtual", "next_slot"],
+  "kirkwood-derm": ["virtual", "leave_materials"],
+  "eastpoint-health": ["drop_samples", "leave_materials", "next_slot"],
+  "o4w-primary": ["virtual", "drop_samples", "next_slot"],
+};
+
 export const seedOffices: Office[] = [...specOffices, ...moreOffices].map((office) => ({
   ...office,
   ...LOCATIONS[office.id],
+  redirect_options: REDIRECT_OPTIONS[office.id] ?? office.redirect_options,
 }));
 
 export const seedBrandBlocks = [{ office_id: DEMO_OFFICE_ID, company: "Meridian Bio" }];
