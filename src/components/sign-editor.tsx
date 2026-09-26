@@ -245,7 +245,9 @@ export function SignEditor({ officeId, showName = true }: { officeId: string; sh
   );
 }
 
-// Opens in place of the sign's status band: pick a status, then "Just today" or "From now on".
+// Opens in place of the sign's status band. One tap on a status changes it (with Undo).
+// "Just for today" is optional: the status switches back on its own tomorrow,
+// e.g. closed because the doctor is out.
 function StatusEditor({
   current,
   onPick,
@@ -255,40 +257,36 @@ function StatusEditor({
   onPick: (status: Status, justToday: boolean) => void;
   onCancel: () => void;
 }) {
-  const [picked, setPicked] = useState<Status | null>(null);
+  const [justToday, setJustToday] = useState(false);
 
   return (
     <div className="flex flex-col gap-3">
       <p className="font-medium">Change your status</p>
+      <label className="flex min-h-12 cursor-pointer items-center gap-3 text-lg">
+        <input
+          type="checkbox"
+          checked={justToday}
+          onChange={(event) => setJustToday(event.target.checked)}
+          className="size-6 accent-foreground"
+        />
+        Just for today (switches back tomorrow)
+      </label>
       <div className="grid grid-cols-3 gap-2">
         {STATUSES.map((status) => {
-          const chosen = (picked ?? current) === status.value;
+          const isCurrent = current === status.value;
           return (
             <Button
               key={status.value}
               variant="outline"
-              aria-pressed={chosen}
-              onClick={() => setPicked(status.value === current ? null : status.value)}
-              className={`h-14 text-lg whitespace-normal ${chosen ? STATUS_STYLE[status.value].className : ""}`}
+              aria-pressed={isCurrent}
+              onClick={() => (isCurrent ? onCancel() : onPick(status.value, justToday))}
+              className={`h-14 text-lg whitespace-normal ${isCurrent ? STATUS_STYLE[status.value].className : ""}`}
             >
               {status.label}
             </Button>
           );
         })}
       </div>
-      {picked ? (
-        <div className="grid grid-cols-2 gap-2">
-          <Button onClick={() => onPick(picked, true)} className="h-14 text-lg">
-            Just today
-          </Button>
-          <Button onClick={() => onPick(picked, false)} className="h-14 text-lg">
-            From now on
-          </Button>
-        </div>
-      ) : null}
-      <Button variant="ghost" onClick={onCancel} className="h-12 text-lg">
-        Keep it as is
-      </Button>
     </div>
   );
 }

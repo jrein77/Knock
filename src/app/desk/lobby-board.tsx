@@ -1,11 +1,11 @@
 "use client";
 
+import { CalendarIcon, MessageSquareIcon } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useCallback, useState } from "react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
 import {
   Drawer,
   DrawerClose,
@@ -14,11 +14,12 @@ import {
   DrawerHeader,
   DrawerTitle,
 } from "@/components/ui/drawer";
+import { MonthPicker } from "@/components/month-picker";
 import { SignEditor } from "@/components/sign-editor";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
-import { DECISION_STYLE, STATUS_STYLE } from "@/lib/status-style";
+import { DECISION_STYLE } from "@/lib/status-style";
 import { useOfficePings } from "@/lib/use-office-pings";
 import type { DecisionKind, Office, Purpose, RedirectAction, Source, Status } from "@/lib/types";
 import { formatDate, formatSlot, formatWhen, shiftDate, TIME_ZONE } from "@/lib/week";
@@ -117,6 +118,8 @@ export function LobbyBoard({ officeId }: { officeId: string }) {
   const [day, setDay] = useState<string | null>(null); // null = today
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<Filter>("all");
+  const [pickingDay, setPickingDay] = useState(false);
+  const [expanded, setExpanded] = useState<string | null>(null); // one open row at a time
 
   const load = useCallback(async () => {
     try {
@@ -192,7 +195,6 @@ export function LobbyBoard({ officeId }: { officeId: string }) {
   }
 
   const { office, requests, inbox } = data;
-  const status = STATUS_STYLE[office.effective_status];
   const isToday = data.day === data.today;
 
   // Search and filter the day's requests.
@@ -205,9 +207,14 @@ export function LobbyBoard({ officeId }: { officeId: string }) {
   const shown = matching.filter((r) => filter === "all" || r.decision === filter);
   const countOf = (decision: DecisionKind) => matching.filter((r) => r.decision === decision).length;
 
+  function goToDay(day: string) {
+    setDay(day === data!.today ? null : day);
+    setExpanded(null);
+  }
+
   return (
     <Board>
-      {/* One row: the office, and its inbox. Status lives on the sign itself. */}
+      {/* One row: the office, and its inbox. */}
       <header className="flex items-center justify-between gap-3">
         <h1 className="min-w-0 text-xl font-semibold sm:text-3xl">{office.name}</h1>
         <Inbox items={inbox} onChange={load} />
@@ -234,37 +241,56 @@ export function LobbyBoard({ officeId }: { officeId: string }) {
 
       {view === "requests" && (
         <section className="flex flex-col gap-4">
-          {/* Today's status, one tap from changing it. */}
-          <button
-            type="button"
-            onClick={() => setView("sign")}
-            className={`flex min-h-12 items-center justify-between gap-3 rounded-xl px-4 py-2 text-left text-lg ${status.className}`}
-          >
-            <span>
-              Door Sign: <span className="font-semibold">{status.label}</span>
-            </span>
-            <span className="text-base underline">Change</span>
-          </button>
-
-          {/* Which day. */}
-          <div className="flex items-center justify-between gap-2">
-            <Button
-              variant="outline"
-              onClick={() => setDay(shiftDate(data.day, -1))}
-              className="h-12 px-4 text-lg"
-            >
+          {/* Which day: step a day at a time, or tap the date for a month view. */}
+          <div className="grid grid-cols-[auto_1fr_auto] items-center gap-2">
+            <Button variant="outline" onClick={() => goToDay(shiftDate(data.day, -1))} className="h-12 px-4 text-lg">
               Earlier
             </Button>
-            <p className="text-center text-lg font-medium">{dayLabel(data.day, data.today)}</p>
+            <Button variant="ghost" onClick={() => setPickingDay(true)} className="h-12 text-lg font-semibold">
+              <CalendarIcon className="size-5" />
+              {dayLabel(data.day, data.today)}
+            </Button>
             <Button
               variant="outline"
-              onClick={() => setDay(shiftDate(data.day, 1) === data.today ? null : shiftDate(data.day, 1))}
+              onClick={() => goToDay(shiftDate(data.day, 1))}
               disabled={isToday}
               className="h-12 px-4 text-lg"
             >
               Later
             </Button>
           </div>
+          <Drawer open={pickingDay} onOpenChange={setPickingDay}>
+            <DrawerContent>
+              <div className="mx-auto flex w-full max-w-md flex-col gap-4 p-6">
+                <div className="flex items-center justify-between gap-4">
+                  <DrawerTitle className="text-2xl">Pick a day</DrawerTitle>
+                  <DrawerClose render={<Button variant="outline" className="h-12 px-5 text-lg" />}>
+                    Close
+                  </DrawerClose>
+                </div>
+                <MonthPicker
+                  officeId={officeId}
+                  selected={data.day}
+                  today={data.today}
+                  onPick={(day) => {
+                    goToDay(day);
+                    setPickingDay(false);
+                  }}
+                />
+                {!isToday && (
+                  <Button
+                    onClick={() => {
+                      goToDay(data.today);
+                      setPickingDay(false);
+                    }}
+                    className="h-12 text-lg"
+                  >
+                    Back to today
+                  </Button>
+                )}
+              </div>
+            </DrawerContent>
+          </Drawer>
 
           {/* Find someone, or narrow to one kind of answer. */}
           <Input
@@ -290,7 +316,7 @@ export function LobbyBoard({ officeId }: { officeId: string }) {
             ))}
           </div>
 
-          {shown.length === 0 && (
+          {shown.length === 0 ? (
             <p className="py-10 text-center text-muted-foreground">
               {requests.length === 0
                 ? isToday
@@ -298,32 +324,37 @@ export function LobbyBoard({ officeId }: { officeId: string }) {
                   : "No requests that day."
                 : "Nothing matches."}
             </p>
+          ) : (
+            // One line per request, newest first. Tap a line for details and the override button.
+            // New QR arrivals slide in; rows already there when the board loads don't animate.
+            <ul className="divide-y overflow-hidden rounded-2xl border bg-card">
+              <AnimatePresence initial={false}>
+                {shown.map((request) => {
+                  const row = (
+                    <RequestRow
+                      request={request}
+                      expanded={expanded === request.id}
+                      onToggle={() => setExpanded(expanded === request.id ? null : request.id)}
+                      onOverride={isToday ? override : undefined}
+                    />
+                  );
+                  return request.source === "qr" ? (
+                    <motion.li
+                      key={request.id}
+                      layout
+                      initial={{ opacity: 0, y: -24 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ type: "spring", stiffness: 300, damping: 28 }}
+                    >
+                      {row}
+                    </motion.li>
+                  ) : (
+                    <li key={request.id}>{row}</li>
+                  );
+                })}
+              </AnimatePresence>
+            </ul>
           )}
-
-          {/* New QR arrivals slide in. Rows already on the board at load don't animate. */}
-          <div className="flex flex-col gap-3">
-            <AnimatePresence initial={false}>
-              {shown.map((request) =>
-                request.source === "qr" ? (
-                  <motion.div
-                    key={request.id}
-                    layout
-                    initial={{ opacity: 0, y: -32 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ type: "spring", stiffness: 300, damping: 28 }}
-                  >
-                    <ArrivalCard request={request} onOverride={isToday ? override : undefined} />
-                  </motion.div>
-                ) : (
-                  <QuietRow
-                    key={request.id}
-                    request={request}
-                    onOverride={isToday ? override : undefined}
-                  />
-                )
-              )}
-            </AnimatePresence>
-          </div>
         </section>
       )}
 
@@ -418,8 +449,18 @@ function Inbox({ items, onChange }: { items: InboxItem[]; onChange: () => void }
 
   return (
     <>
-      <Button variant="outline" onClick={() => setOpen(true)} className="h-12 shrink-0 px-4 text-lg">
-        Messages ({newItems.length})
+      <Button
+        variant="outline"
+        onClick={() => setOpen(true)}
+        aria-label={`Messages, ${newItems.length} new`}
+        className="relative size-12 shrink-0"
+      >
+        <MessageSquareIcon className="size-6" />
+        {newItems.length > 0 && (
+          <span className="absolute -top-2 -right-2 flex h-6 min-w-6 items-center justify-center rounded-full bg-primary px-1.5 text-sm font-semibold text-primary-foreground">
+            {newItems.length}
+          </span>
+        )}
       </Button>
       <Drawer open={open} onOpenChange={setOpen}>
         <DrawerContent>
@@ -516,103 +557,71 @@ function Board({ children }: { children: React.ReactNode }) {
 }
 
 // A rep who scanned the QR code at this desk. Full card with override buttons.
-// Overrides are only offered on today's board (`onOverride` is left out for past days).
-function ArrivalCard({
+// One request as a line item: time, who, what, and the answer.
+// Tapping it opens the details: why (or the override record), the rep's message,
+// and one override button on today's board ("Cancel visit" or "Approve anyway").
+function RequestRow({
   request,
+  expanded,
+  onToggle,
   onOverride,
 }: {
   request: DeskRequest;
-  onOverride?: (request: DeskRequest, action: "approve" | "decline") => void;
-}) {
-  const canApprove = onOverride && request.decision !== "accepted";
-  const canDecline =
-    onOverride && request.decision !== "declined" && request.purpose !== "safety_notice";
-
-  return (
-    <Card className="gap-3 p-5 text-lg">
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <p>
-            <span className="text-xl font-semibold">{request.rep_name}</span>
-            <span className="text-muted-foreground"> · {request.rep_company}</span>
-          </p>
-          <p className="text-muted-foreground">
-            {whatTheyBrought(request)} · scanned {formatTime(request.created_at)}
-          </p>
-        </div>
-        <DecisionBadge decision={request.decision} />
-      </div>
-
-      <DecisionDetail request={request} />
-
-      {/* The rep's note stays collapsed so the board stays calm. */}
-      {request.rep_message && (
-        <details className="rounded-xl bg-muted px-4 py-3">
-          <summary className="min-h-8 cursor-pointer font-medium">Message from the rep</summary>
-          <p className="pt-2">{request.rep_message}</p>
-        </details>
-      )}
-
-      {(canApprove || canDecline) && (
-        <div className="flex flex-wrap gap-3">
-          {canApprove && (
-            <Button onClick={() => onOverride!(request, "approve")} className="h-12 px-5 text-lg">
-              Approve anyway
-            </Button>
-          )}
-          {canDecline && (
-            <Button
-              variant="outline"
-              onClick={() => onOverride!(request, "decline")}
-              className="h-12 px-5 text-lg"
-            >
-              {request.decision === "accepted" ? "Cancel visit" : "Decline"}
-            </Button>
-          )}
-        </div>
-      )}
-    </Card>
-  );
-}
-
-// Any other request (e.g. from the rep fit list). One quiet line.
-// One quiet line, with one override button on today's board:
-// "Cancel visit" for a booked visit, "Approve anyway" for anything else.
-function QuietRow({
-  request,
-  onOverride,
-}: {
-  request: DeskRequest;
+  expanded: boolean;
+  onToggle: () => void;
   onOverride?: (request: DeskRequest, action: "approve" | "decline") => void;
 }) {
   const booked = request.decision === "accepted";
   const canAct = onOverride && !(booked && request.purpose === "safety_notice");
+  const where = request.source === "qr" ? "at the desk" : "fit list";
 
   return (
-    <div className="flex items-center justify-between gap-3 border-b py-3">
-      <p className="min-w-0 text-muted-foreground">
-        <span>{formatTime(request.created_at)} </span>
-        <span className="text-foreground">
-          {request.rep_name}, {request.rep_company}
+    <>
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={expanded}
+        className="flex min-h-16 w-full items-center gap-3 px-4 py-3 text-left hover:bg-muted/60"
+      >
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-lg font-semibold">{request.rep_name}</span>
+          <span className="block text-base text-muted-foreground">
+            {[
+              request.rep_company,
+              whatTheyBrought(request),
+              formatTime(request.created_at),
+              where,
+              request.overridden && "overridden",
+              request.rep_message && "message",
+            ]
+              .filter(Boolean)
+              .join(" · ")}
+          </span>
         </span>
-        <span> · {whatTheyBrought(request)}</span>
-        <span>
-          {" "}
-          · {DECISION_STYLE[request.decision].label}
-          {request.slot_at && booked && ` for ${formatSlot(request.slot_at)}`}
-          {request.overridden && " (overridden by the desk)"}
-        </span>
-      </p>
-      {canAct && (
-        <Button
-          variant="outline"
-          onClick={() => onOverride(request, booked ? "decline" : "approve")}
-          className="h-12 shrink-0 px-4 text-lg"
-        >
-          {booked ? "Cancel visit" : "Approve anyway"}
-        </Button>
+        <DecisionBadge decision={request.decision} />
+      </button>
+
+      {/* Details sit right on the row: plain lines, no boxes inside boxes. */}
+      {expanded && (
+        <div className="flex flex-col gap-2 px-4 pb-4 text-lg">
+          <DecisionDetail request={request} />
+          {request.rep_message && (
+            <p>
+              <span className="text-muted-foreground">Rep wrote: </span>&ldquo;{request.rep_message}&rdquo;
+            </p>
+          )}
+          {canAct && (
+            <Button
+              variant={booked ? "outline" : "default"}
+              onClick={() => onOverride(request, booked ? "decline" : "approve")}
+              className="h-12 self-start px-5 text-lg"
+            >
+              {booked ? "Cancel visit" : "Approve anyway"}
+            </Button>
+          )}
+        </div>
       )}
-    </div>
+    </>
   );
 }
 
@@ -645,13 +654,13 @@ function OverrideNote({ request }: { request: DeskRequest }) {
         .join(", ")
     : null;
   return (
-    <div className="rounded-xl border px-4 py-2">
+    <>
       <p className="font-medium">
         Overridden by the front desk
         {request.overridden_at && ` at ${formatTime(request.overridden_at)}`}
       </p>
       {signSaid && <p className="text-muted-foreground">The sign said: {signSaid}</p>}
-    </div>
+    </>
   );
 }
 
