@@ -3,7 +3,7 @@
 import { AnimatePresence, motion } from "motion/react";
 import { REDIRECT_OPTION_LABELS, STATUS_STYLE } from "@/lib/status-style";
 import type { RedirectAction, Status, VisitSlot } from "@/lib/types";
-import { formatClock, sortSlots } from "@/lib/week";
+import { currentSlots, formatSlotLine, sortSlots } from "@/lib/week";
 
 export type SignLine = "topics" | "slots" | "redirects" | "cap" | "blocks";
 
@@ -14,6 +14,7 @@ type DoorSignProps = {
   status: Status; // the effective status right now
   todayOnly: boolean; // status is a "just today" override
   topics: string[];
+  topicsNote?: string | null; // free text the office added about topics
   visitSlots: VisitSlot[];
   redirectOptions: RedirectAction[];
   // Office screens only. Never pass these on a rep screen.
@@ -28,7 +29,7 @@ type DoorSignProps = {
 export function DoorSign(props: DoorSignProps) {
   const status = STATUS_STYLE[props.status];
   const subtitle = [props.specialty, props.neighborhood].filter(Boolean).join(" · ");
-  const slots = sortSlots(props.visitSlots);
+  const slots = sortSlots(currentSlots(props.visitSlots, new Date()));
 
   return (
     <div className="overflow-hidden rounded-3xl bg-card text-card-foreground shadow-lg ring-1 ring-foreground/10">
@@ -55,10 +56,13 @@ export function DoorSign(props: DoorSignProps) {
       <div className="flex flex-col gap-1 px-4 py-4">
         <Line {...props} line="topics" label="Wants">
           {props.topics.length > 0 ? props.topics.join(", ") : "No specific topics"}
+          {props.topicsNote && (
+            <span className="block text-base text-muted-foreground">{props.topicsNote}</span>
+          )}
         </Line>
         <Line {...props} line="slots" label="Visits">
           {slots.length > 0
-            ? slots.map((slot) => `${slot.day} ${formatClock(slot.time)}`).join(" · ")
+            ? slots.map(formatSlotLine).join(" · ")
             : "No visit times"}
         </Line>
         <Line {...props} line="redirects" label="Also welcome">

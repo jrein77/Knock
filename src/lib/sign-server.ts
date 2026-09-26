@@ -5,7 +5,7 @@ import type { createServerClient } from "./supabase/server";
 type Db = ReturnType<typeof createServerClient>;
 
 const SIGN_COLUMNS =
-  "status, today_status, today_status_date, topics, visit_slots, weekly_cap, redirect_options";
+  "name, specialty, address, npi, topics_note, status, today_status, today_status_date, topics, visit_slots, weekly_cap, redirect_options";
 
 // The office's current sign, including its private brand blocks. Null if the office doesn't exist.
 export async function readSnapshot(db: Db, officeId: string): Promise<SignSnapshot | null> {
@@ -23,7 +23,7 @@ export async function readSnapshot(db: Db, officeId: string): Promise<SignSnapsh
   };
 }
 
-// Make the office's sign match the snapshot.
+// Make the office's sign match the snapshot. Fields missing from an older snapshot are left alone.
 export async function writeSnapshot(db: Db, officeId: string, snapshot: SignSnapshot) {
   const { brand_blocks, ...signFields } = snapshot;
 

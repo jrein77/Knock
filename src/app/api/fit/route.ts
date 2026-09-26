@@ -1,7 +1,7 @@
 import { decide, effectiveStatus, type Decision } from "@/lib/decide";
 import { createServerClient } from "@/lib/supabase/server";
 import type { DecisionKind, Drug, Office } from "@/lib/types";
-import { formatSlot, nyToday, WEEK_MS } from "@/lib/week";
+import { formatVisit, nyToday, WEEK_MS } from "@/lib/week";
 
 // The rep's fit list: every office, colored by what the decision engine would answer
 // if this rep asked for a visit right now with their best drug for that office.
@@ -20,13 +20,15 @@ const RANK: Record<DecisionKind, number> = { accepted: 0, redirected: 1, decline
 function reasonText(decision: Decision, drug: Drug): string {
   switch (decision.reasonCode) {
     case "slot":
-      return `Good fit for ${drug.brand}. Next visit ${formatSlot(decision.slotAt!)}`;
+      return `Good fit for ${drug.brand}. Next visit ${formatVisit(decision.slotAt!, decision.slotEnd)}`;
     case "off_topic":
       return "Doesn't list your topics right now";
     case "cap_full":
-      return `No open visit this week. Next is ${formatSlot(decision.slotAt!)}`;
+      return `No open visit this week. Next is ${formatVisit(decision.slotAt!, decision.slotEnd)}`;
     case "no_slots":
-      return "No visit times posted";
+      return decision.slotAt
+        ? `No visit times this week. Next is ${formatVisit(decision.slotAt, decision.slotEnd)}`
+        : "No visit times posted";
     case "blocked":
       return "Not taking visits for your products right now";
     default:

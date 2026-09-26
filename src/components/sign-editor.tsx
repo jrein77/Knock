@@ -206,6 +206,7 @@ export function SignEditor({ officeId }: { officeId: string }) {
         status={office.effective_status}
         todayOnly={todayOnly}
         topics={office.topics}
+        topicsNote={office.topics_note}
         visitSlots={office.visit_slots}
         redirectOptions={office.redirect_options}
         privateInfo={{ weeklyCap: office.weekly_cap, brandBlocks }}

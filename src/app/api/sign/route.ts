@@ -53,6 +53,11 @@ const Status = z.enum(["open", "topics", "closed"]);
 
 const SignChange = z
   .object({
+    name: z.string().trim().min(1).max(120),
+    specialty: z.string().trim().max(120).nullable(),
+    address: z.string().trim().max(200).nullable(),
+    npi: z.string().regex(/^\d{10}$/).nullable(),
+    topics_note: z.string().trim().max(280).nullable(),
     status: Status,
     today_status: Status.nullable(),
     today_status_date: z.string().nullable(),
@@ -61,6 +66,8 @@ const SignChange = z
       z.object({
         day: z.enum(["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]),
         time: z.string().regex(/^\d{2}:\d{2}$/),
+        end: z.string().regex(/^\d{2}:\d{2}$/).optional(),
+        date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
       })
     ),
     weekly_cap: z.number().int().min(0).max(10),

@@ -96,6 +96,11 @@ function signAt(office: Office, time: Date, now: Date): Office {
 
 function snapshot(office: Office): SignSnapshot {
   return {
+    name: office.name,
+    specialty: office.specialty,
+    address: office.address,
+    npi: office.npi,
+    topics_note: office.topics_note,
     status: office.status,
     today_status: office.today_status,
     today_status_date: office.today_status_date,

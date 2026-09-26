@@ -3,8 +3,8 @@ import { effectiveStatus } from "./decide";
 import type { SignSnapshot } from "./sign";
 import { STATUS_STYLE } from "./status-style";
 import type { createServerClient } from "./supabase/server";
-import type { DecisionKind, Drug, Office, Purpose, RedirectAction, Source } from "./types";
-import { nyWeekday } from "./week";
+import type { Day, DecisionKind, Drug, Office, Purpose, RedirectAction, Source } from "./types";
+import { DAY_NAMES, nyWeekday } from "./week";
 
 // Demand Signals: plain counts over requests and Door Signs, written as sentences.
 //
@@ -16,15 +16,6 @@ import { nyWeekday } from "./week";
 export const BRANDS = ["Norvance", "Helix Pharma", "Meridian Bio", "Aerion", "Lumen Therapeutics"];
 
 const DAY_MS = 24 * 60 * 60 * 1000;
-const DAY_NAMES: Record<string, string> = {
-  Mon: "Monday",
-  Tue: "Tuesday",
-  Wed: "Wednesday",
-  Thu: "Thursday",
-  Fri: "Friday",
-  Sat: "Saturday",
-  Sun: "Sunday",
-};
 
 export type InsightCard = {
   key: string;
@@ -227,7 +218,7 @@ export async function loadSignals(
 
     cards.push({
       key: `filling-${office.id}`,
-      sentence: `${office.name} fills its weekly slots by ${DAY_NAMES[fillDay]}. Request early in the week.`,
+      sentence: `${office.name} fills its weekly slots by ${DAY_NAMES[fillDay as Day]}. Request early in the week.`,
       officesAffected: 1,
     });
   }

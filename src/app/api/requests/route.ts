@@ -105,6 +105,7 @@ export async function POST(request: Request) {
     repId,
     decision: decision.decision,
     slotAt: decision.slotAt?.toISOString() ?? null,
+    slotEnd: decision.slotEnd?.toISOString() ?? null,
     redirectAction: decision.redirectAction,
     message,
   });

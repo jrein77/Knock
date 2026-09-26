@@ -5,6 +5,11 @@ import type { Office } from "./types";
 
 export type SignSnapshot = Pick<
   Office,
+  | "name"
+  | "specialty"
+  | "address"
+  | "npi"
+  | "topics_note"
   | "status"
   | "today_status"
   | "today_status_date"

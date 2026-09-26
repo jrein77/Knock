@@ -62,7 +62,7 @@ const REASON_LABELS: Record<string, string> = {
   drop_samples: "Sample drop-off",
   slot: "Visit booked",
   cap_full: "Week is full",
-  no_slots: "No visit slots",
+  no_slots: "No visit times this week",
 };
 
 const REDIRECT_TAKEN_LABELS: Record<RedirectAction, string> = {

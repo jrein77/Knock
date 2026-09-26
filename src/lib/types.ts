@@ -7,7 +7,11 @@ export type RedirectAction = "drop_samples" | "virtual" | "next_slot" | "leave_m
 export type DecisionKind = "accepted" | "redirected" | "declined";
 
 export type Day = "Mon" | "Tue" | "Wed" | "Thu" | "Fri" | "Sat" | "Sun";
-export type VisitSlot = { day: Day; time: string }; // time is "HH:MM", New York time
+// A visit time. `time` is when it starts ("HH:MM", New York time).
+// With `end`, it's a window ("Tue 12:00-1:00 PM") and reps can be booked until it closes.
+// Without `date` it repeats every week on `day`. With `date` ("YYYY-MM-DD") it happens
+// once, on that date (and `day` is that date's weekday).
+export type VisitSlot = { day: Day; time: string; end?: string; date?: string };
 
 export type Office = {
   id: string;

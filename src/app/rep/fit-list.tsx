@@ -12,7 +12,7 @@ import { EMPTY_REP, loadRep, saveRep, type SavedRep } from "@/lib/rep-storage";
 import { ANSWER_TITLE, DECISION_STYLE, STATUS_STYLE } from "@/lib/status-style";
 import { supabase } from "@/lib/supabase/browser";
 import type { DecisionKind, Drug, RedirectAction, Status, VisitSlot } from "@/lib/types";
-import { formatSlot } from "@/lib/week";
+import { formatVisit } from "@/lib/week";
 
 type Fit = "green" | "amber" | "grey";
 
@@ -35,6 +35,7 @@ type Answer = {
   requestId: string;
   decision: DecisionKind;
   slotAt: string | null;
+  slotEnd: string | null;
   redirectAction: RedirectAction | null;
   message: string;
 };
@@ -333,7 +334,7 @@ function OfficeCard({
           <p className="text-2xl font-semibold">{ANSWER_TITLE[answer.decision]}</p>
           {answer.decision === "accepted" && answer.slotAt && (
             <p className="text-xl font-medium">
-              {formatSlot(answer.slotAt)}, 5 minutes with the team
+              {formatVisit(answer.slotAt, answer.slotEnd)}, 5 minutes with the team
             </p>
           )}
           <p className="text-lg">{answer.message}</p>

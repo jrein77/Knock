@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { SignEditor } from "@/components/sign-editor";
 import { DEMO_OFFICE_ID } from "@/lib/seed";
 
@@ -8,6 +9,9 @@ export default function SignPage() {
       <div className="flex w-full max-w-xl flex-col gap-4">
         <p className="text-center text-muted-foreground">This is what reps see.</p>
         <SignEditor officeId={DEMO_OFFICE_ID} />
+        <Link href="/sign/setup" className="flex min-h-12 items-center justify-center text-lg underline">
+          Set up again
+        </Link>
       </div>
     </main>
   );

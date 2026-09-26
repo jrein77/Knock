@@ -11,12 +11,13 @@ import { redirectDoneText, redirectLabel } from "@/lib/messages";
 import { EMPTY_REP, loadRep, saveRep, type SavedRep } from "@/lib/rep-storage";
 import { ANSWER_TITLE, DECISION_STYLE } from "@/lib/status-style";
 import type { DecisionKind, Drug, Purpose, RedirectAction } from "@/lib/types";
-import { formatSlot } from "@/lib/week";
+import { formatVisit } from "@/lib/week";
 
 type Answer = {
   requestId: string;
   decision: DecisionKind;
   slotAt: string | null;
+  slotEnd: string | null;
   redirectAction: RedirectAction | null;
   message: string;
 };
@@ -267,7 +268,7 @@ function Flow({ officeId, officeName, drugs }: FlowProps) {
       <h1 className="text-5xl font-semibold">{style.title}</h1>
       {hasVisitSlot && (
         <div>
-          <p className="text-2xl font-medium">{formatSlot(answer.slotAt!)}</p>
+          <p className="text-2xl font-medium">{formatVisit(answer.slotAt!, answer.slotEnd)}</p>
           <p className="text-xl">5 minutes with the team</p>
         </div>
       )}

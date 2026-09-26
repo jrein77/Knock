@@ -2,7 +2,7 @@
 // Plain rules, checked in order (REQUIREMENTS.md section 5). No LLM in here.
 
 import type { DecisionKind, Drug, Office, Purpose, RedirectAction, Status } from "./types";
-import { nyToday, upcomingSlots, WEEK_MS } from "./week";
+import { nyToday, upcomingWindows, WEEK_MS } from "./week";
 
 export type ReasonCode =
   | "safety"
@@ -28,6 +28,7 @@ export type Decision = {
   decision: DecisionKind;
   reasonCode: ReasonCode;
   slotAt: Date | null;
+  slotEnd?: Date | null; // when the booked window closes, if the slot is a window
   redirectAction: RedirectAction | null;
 };
 
@@ -97,10 +98,26 @@ export function decide(input: DecideInput): Decision {
     return { decision: "accepted", reasonCode: "drop_samples", slotAt: null, redirectAction: null };
   }
 
-  // 6. Book the next visit slot, if the weekly cap has room.
-  const slots = upcomingSlots(now, office.visit_slots);
+  // 6. Book the soonest visit time in the next 7 days, if the weekly cap has room.
+  //    Visit times are weekly or on a specific date (see VisitSlot).
+  const weekEnd = new Date(now.getTime() + WEEK_MS);
+  const openings = upcomingWindows(now, office.visit_slots);
+  const thisWeek = openings.filter((opening) => opening.start < weekEnd);
+  // The first opening after this week, to offer instead.
+  const later = upcomingWindows(weekEnd, office.visit_slots)[0];
 
-  if (slots.length === 0) {
+  if (thisWeek.length > 0 && acceptedThisWeek < office.weekly_cap) {
+    return {
+      decision: "accepted",
+      reasonCode: "slot",
+      slotAt: thisWeek[0].start,
+      slotEnd: thisWeek[0].end,
+      redirectAction: null,
+    };
+  }
+
+  // No visit times at all.
+  if (!later) {
     return {
       decision: "redirected",
       reasonCode: "no_slots",
@@ -109,16 +126,12 @@ export function decide(input: DecideInput): Decision {
     };
   }
 
-  if (acceptedThisWeek < office.weekly_cap) {
-    return { decision: "accepted", reasonCode: "slot", slotAt: slots[0], redirectAction: null };
-  }
-
-  // Cap is full. Offer the first slot after this 7-day window.
-  const nextWeek = upcomingSlots(new Date(now.getTime() + WEEK_MS), office.visit_slots);
+  // This week is full, or has no visit times: offer the first opening after it.
   return {
     decision: "redirected",
-    reasonCode: "cap_full",
-    slotAt: nextWeek[0],
+    reasonCode: thisWeek.length > 0 ? "cap_full" : "no_slots",
+    slotAt: later.start,
+    slotEnd: later.end,
     redirectAction: firstOffered(office, ["next_slot", "leave_materials"]),
   };
 }
