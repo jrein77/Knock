@@ -306,38 +306,46 @@ function Inbox({ items, onChange }: { items: InboxItem[]; onChange: () => void }
       </Button>
       <Drawer open={open} onOpenChange={setOpen}>
         <DrawerContent>
-          <div className="mx-auto flex w-full max-w-2xl flex-col gap-4 overflow-y-auto p-6 text-lg">
-            <DrawerHeader className="p-0">
-              <DrawerTitle className="text-2xl">Messages from reps</DrawerTitle>
-              <DrawerDescription className="text-lg">
-                Notes from reps who think the sign got it wrong, and messages sent with requests.
-              </DrawerDescription>
-            </DrawerHeader>
+          <div className="mx-auto flex w-full max-w-2xl flex-col gap-4 overflow-y-auto px-6 pb-6 text-lg">
+            {/* Title, Close, and filters stay at the top while the list scrolls. */}
+            <div className="sticky top-0 z-10 flex flex-col gap-4 bg-popover pt-6 pb-2">
+              <div className="flex items-start justify-between gap-4">
+                <DrawerHeader className="min-w-0 flex-1 shrink p-0 text-left group-data-[swipe-axis=y]/drawer-popup:text-left">
+                  <DrawerTitle className="text-2xl">Messages from reps</DrawerTitle>
+                  <DrawerDescription className="text-lg">
+                    Notes from reps who think the sign got it wrong, and messages sent with requests.
+                  </DrawerDescription>
+                </DrawerHeader>
+                <DrawerClose render={<Button variant="outline" className="h-12 shrink-0 px-5 text-lg" />}>
+                  Close
+                </DrawerClose>
+              </div>
 
-            <div className="flex flex-wrap items-center gap-2">
-              <Button
-                variant={view === "new" ? "default" : "outline"}
-                aria-pressed={view === "new"}
-                onClick={() => setView("new")}
-                className="h-12 px-4 text-lg"
-              >
-                New ({newItems.length})
-              </Button>
-              <Button
-                variant={view === "resolved" ? "default" : "outline"}
-                aria-pressed={view === "resolved"}
-                onClick={() => setView("resolved")}
-                className="h-12 px-4 text-lg"
-              >
-                Resolved ({resolvedItems.length})
-              </Button>
-              <Input
-                aria-label="Search messages"
-                placeholder="Search by rep, company, drug, or words"
-                value={search}
-                onChange={(event) => setSearch(event.target.value)}
-                className="h-12 min-w-56 flex-1 text-lg md:text-lg"
-              />
+              <div className="flex flex-wrap items-center gap-2">
+                <Button
+                  variant={view === "new" ? "default" : "outline"}
+                  aria-pressed={view === "new"}
+                  onClick={() => setView("new")}
+                  className="h-12 px-4 text-lg"
+                >
+                  New ({newItems.length})
+                </Button>
+                <Button
+                  variant={view === "resolved" ? "default" : "outline"}
+                  aria-pressed={view === "resolved"}
+                  onClick={() => setView("resolved")}
+                  className="h-12 px-4 text-lg"
+                >
+                  Resolved ({resolvedItems.length})
+                </Button>
+                <Input
+                  aria-label="Search messages"
+                  placeholder="Search by rep, company, drug, or words"
+                  value={search}
+                  onChange={(event) => setSearch(event.target.value)}
+                  className="h-12 min-w-56 flex-1 text-lg md:text-lg"
+                />
+              </div>
             </div>
 
             {shown.length === 0 && (
@@ -350,18 +358,19 @@ function Inbox({ items, onChange }: { items: InboxItem[]; onChange: () => void }
                 <li key={`${item.kind}-${item.id}`} className="flex flex-col gap-2 rounded-xl bg-muted px-4 py-3">
                   <p className="text-base font-medium text-muted-foreground">{INBOX_KIND_LABELS[item.kind]}</p>
                   <p>{item.body}</p>
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <p className="text-base text-muted-foreground">
-                      {[
-                        item.repName,
-                        item.repCompany,
-                        item.drug,
-                        item.decision && DECISION_STYLE[item.decision].label,
-                        formatWhen(item.createdAt, new Date()),
-                      ]
-                        .filter(Boolean)
-                        .join(" · ")}
-                    </p>
+                  <p className="text-base text-muted-foreground">
+                    {[
+                      item.repName,
+                      item.repCompany,
+                      item.drug,
+                      item.decision && DECISION_STYLE[item.decision].label,
+                      formatWhen(item.createdAt, new Date()),
+                    ]
+                      .filter(Boolean)
+                      .join(" · ")}
+                  </p>
+                  {/* Always its own row, bottom right, so it's in the same place on every message. */}
+                  <div className="flex justify-end">
                     <Button
                       variant="outline"
                       onClick={() => setHandled(item, !item.handled)}
@@ -373,9 +382,6 @@ function Inbox({ items, onChange }: { items: InboxItem[]; onChange: () => void }
                 </li>
               ))}
             </ul>
-            <DrawerClose render={<Button variant="outline" className="h-14 text-lg" />}>
-              Close
-            </DrawerClose>
           </div>
         </DrawerContent>
       </Drawer>

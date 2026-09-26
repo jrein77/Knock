@@ -242,9 +242,12 @@ function Flow({ officeId, officeName, drugs }: FlowProps) {
 
         {error && <p role="alert">{error}</p>}
 
-        <Button onClick={ask} disabled={!canAsk} className="h-14 w-full text-lg">
-          {sending ? "Checking the sign..." : "Ask the office"}
-        </Button>
+        {/* Pinned to the bottom of the screen so it's always reachable on a phone. */}
+        <div className="sticky bottom-0 -mx-6 bg-background px-6 pt-3 pb-[max(1.5rem,env(safe-area-inset-bottom))]">
+          <Button onClick={ask} disabled={!canAsk} className="h-14 w-full text-lg">
+            {sending ? "Checking the sign..." : "Ask the office"}
+          </Button>
+        </div>
       </Screen>
     );
   }
