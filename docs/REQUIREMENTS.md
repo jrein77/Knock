@@ -37,6 +37,7 @@ An in-person opt-in channel for pharma rep visits. The medical office publishes 
 | `/sign/setup` | Doctor / office manager | Any | One question per screen setup, Talk / Type switch |
 | `/rep` | Rep | Phone | Fit list: stack of Door Signs sorted green / amber / grey |
 | `/k/[officeId]` | Rep | Phone | QR landing. Request flow: who, what, answer |
+| `/signals` | Impiricus / brand teams | Laptop | Demand Signals: ranked insight cards from all requests and Door Signs |
 
 Demo office id: `peachtree-family`. The printed QR points to `/k/peachtree-family`.
 
@@ -44,7 +45,7 @@ Demo office id: `peachtree-family`. The printed QR points to `/k/peachtree-famil
 
 Max 3 screens, mobile first.
 1. **Who:** name, company, email. Saved to localStorage as a rep id after first submit; skipped on later scans (show "Not you?" link).
-2. **What are you bringing:** one-tap chips of all seeded drugs (brand name + therapeutic area), plus a chip "Safety notice". Optional purpose chips: Visit (default), Drop samples, Lunch.
+2. **What are you bringing:** one-tap chips of all seeded drugs (brand name + therapeutic area), plus a chip "Safety notice". Purpose chips: Visit (default), Drop samples, Lunch. All structured, no free text drives the decision. Optional "Message to the office" textarea (max 280 chars), shown collapsed on the desk card; it never affects the decision.
 3. **Answer:** whole screen turns a status color.
    - Green "You're in" + slot time ("Tuesday 12:30, 5 minutes with the team").
    - Amber "Not a visit this time" + redirect text + one big primary button for the redirect action (e.g. "Drop samples at the front desk" or "Book Thursday 12:30 instead").
@@ -93,6 +94,26 @@ Max 3 screens, mobile first.
 - The reason is written on the card ("Wants: GLP-1, lipids · Tue/Thu 12:30"). No filter UI.
 - Tap a card: "Request a visit" goes through the same decision engine, with `source = 'fit_list'`.
 
+### 4.6 `/signals` Demand Signals (the Impiricus product)
+
+Who: Impiricus and brand teams, laptop. This is what Impiricus sells. Not a chart dashboard: a ranked feed of insight cards, each a plain sentence with the offices behind it and one action.
+
+- Header: brand selector (All brands = Impiricus view, or one company: Norvance, Helix Pharma, Meridian Bio, Aerion, Lumen Therapeutics) and time window (7 / 30 days).
+- Top row, three numbers only:
+  - **Trips saved:** requests answered before a visit (redirected or declined from the fit list, plus QR redirects to drop samples or virtual).
+  - **Accepted visits** in the window.
+  - **Open demand:** offices whose Door Sign wants a topic in the selected brand's areas.
+- Insight cards (computed with plain SQL/TypeScript in `src/lib/signals.ts`, sentences from templates, ranked by number of offices affected):
+  1. **Unmet demand:** "7 offices want GLP-1 / diabetes info. None accepted a Norvance visit in 30 days." Expand: office list. Action: "Send list to field team" (copies list, toast).
+  2. **Wasted effort by reason:** "Most of Aerion's redirects were off-topic. These offices don't list Asthma / COPD." Expand: breakdown bar (off-topic / not taking visits / slots full) and offices that do want the area.
+  3. **Slots filling fast:** "Decatur Heart fills its weekly slots by Tuesday. Request early in the week."
+  4. **Newly open:** "Buckhead Dermatology changed from Closed to Topics only this week and wants Psoriasis."
+  5. **Mismatch notes:** "3 reps left notes saying Knock got it wrong at Peachtree Family." Links to notes.
+  6. **Ask before you drive:** share of requests from the fit list vs walk-in QR, trend over the window.
+- Privacy rules on this page: brand blocks never appear; `blocked` is merged into "not taking visits". A single brand view only shows its own requests plus office-level public data (status, topics, slots). Office-level counts for other brands never shown.
+- One small horizontal bar is allowed inside card 2. No other charts.
+- Updates on page load (no realtime needed).
+
 ## 5. Decision engine
 
 Location: `src/lib/decide.ts`. Pure function, plain TypeScript, easy to read. No LLM inside the decision.
@@ -110,14 +131,15 @@ Order of checks:
 
 Effective status: `today_status` if `today_status_date` equals today's date in America/New_York, else `status`.
 
-After deciding, the API route calls Grok once to write the short, friendly redirect or confirmation text shown to the rep (1 to 2 sentences, never reveals reasonCode `blocked` or cap usage). If the Grok call fails or takes longer than 3 seconds, use a template string. The demo must never depend on the LLM responding.
+The answer text shown to the rep comes from templates keyed by decision + redirectAction (`src/lib/messages.ts`). Never reveal reasonCode `blocked` or cap usage. `blocked` and `closed` both read as "Not taking visits right now."
 
-## 6. Where Grok is used
+## 6. Where Grok is used (office setup only)
 
-Provider: xAI via Vercel AI SDK (`@ai-sdk/xai`), model name from env `XAI_MODEL`. Structured output with zod where fields are returned.
-1. **Answer text:** write the 1 to 2 sentence message for the rep from `{decision, reasonCode (sanitized), redirectAction, slotAt, officeName}`. Template fallback.
-2. **Setup parsing:** turn free text or a voice transcript into Door Sign fields (topics as therapeutic-area tags, days, times, cap).
-3. **Talk mode:** Grok Voice for setup (later, cut at 1 AM Sunday if not working).
+Reps and the decision engine use no LLM. All rep input is structured.
+Provider: xAI via Vercel AI SDK (`@ai-sdk/xai`), model from env `XAI_MODEL`. Structured output with zod.
+1. **Setup parsing:** turn a doctor's loose free text or voice transcript ("we don't need any more statin people, happy to hear about diabetes stuff, Tuesdays at lunch work") into Door Sign fields (status, topics as therapeutic-area tags, days, times, cap). The doctor always confirms on the Door Sign preview before saving.
+2. **Talk mode:** Grok Voice (`XAI_VOICE_MODEL=grok-voice-latest`, `XAI_VOICE=carina`) via realtime WebSocket, browser uses a short-lived token minted by a server route. Cut at 1 AM Sunday if not working.
+If Grok fails, the Type flow with chips still works; free text is optional.
 Grok Imagine: logo concepts only, not in the product.
 
 ## 7. Data model (Supabase Postgres)
@@ -146,6 +168,10 @@ Offices:
 | inman-pulm | Inman Park Pulmonary | Inman Park | Pulmonology | topics | Asthma / COPD | Tue 11:30 | 2 | none |
 | westend-peds | West End Pediatrics | West End | Pediatrics | closed | none | none | 0 | none |
 
+Add 8 more fictional offices across Atlanta neighborhoods (Grant Park, Virginia-Highland, Sandy Springs, Marietta, Kirkwood, East Point, Brookhaven, Old Fourth Ward) with a mix of specialties and statuses so `/signals` has enough offices. At least 5 offices total should list GLP-1 / diabetes; at least one should have changed from Closed to Topics only in the last 7 days (sign_history row).
+
+History for `/signals`: seed ~150 requests over the past 30 days across all offices, drugs, and reps, produced by running the real decision engine against each office's sign (not random decisions), with ~60% from `fit_list` and ~40% from `qr`, plus 3 rep notes at Peachtree Family. Norvance should have zero accepted visits at the GLP-1 offices so the unmet-demand card fires.
+
 Demo office seeded with 1 accepted visit this week, so cap fills during the expo. Reset restores this.
 Redirect options for all offices: drop_samples, virtual, next_slot, leave_materials.
 
@@ -170,15 +196,15 @@ Printed rep cards for the expo and their expected outcome at Peachtree Family:
 
 ## 10. Build order and cut lines
 
-1. Schema + seed + reset route, deployed to Vercel. (must)
+1. Schema + seed (including 30 days of history) + reset route, deployed to Vercel. (must)
 2. Decision engine + `/k/[officeId]` flow end to end with template text. (must, this is the demo)
 3. `/desk` Lobby Board with realtime + overrides. (must)
 4. `/sign` Door Sign editing: status with just today / from now on, edit in place, undo, history line. (must)
-5. Grok answer text with fallback. (should)
+5. `/signals` Demand Signals page. (must, this is what Impiricus buys)
 6. `/rep` fit list. (should)
 7. Rep notes drawer. (should)
 8. `/sign/setup` Type mode + NPI pre-fill. (should)
-9. Talk mode with Grok Voice. (could; hard cut 1 AM Sunday)
+9. Grok setup parsing (free text to fields), then Talk mode with Grok Voice. (could; hard cut 1 AM Sunday)
 10. Landing page polish, logo, QR tent card + rep cards printable page. (must before video)
 
 ## 11. Acceptance checks (run before recording the video)
@@ -188,7 +214,8 @@ Printed rep cards for the expo and their expected outcome at Peachtree Family:
 - Flip Peachtree to Closed "Just today" on `/sign` → next scan is grey with a redirect; `/rep` shows Peachtree grey.
 - Undo restores the previous status.
 - Safety notice is accepted even when Closed.
-- Kill the xAI key → every flow still works with template text.
+- Kill the xAI key → every flow except Talk mode and free-text setup parsing still works.
+- `/signals` with Norvance selected shows the unmet GLP-1 demand card; after a visitor's Glucavia visit is accepted at Peachtree and the page is reloaded, the count reflects it.
 - Reset demo restores everything.
 
 ## 12. Slide only (pitch, not built)

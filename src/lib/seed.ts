@@ -14,8 +14,9 @@ export const seedDrugs: Drug[] = [
   { id: "dermavel", brand: "Dermavel", company: "Lumen Therapeutics", area: "Psoriasis" },
 ];
 
-// Every column is listed so a reset fully overwrites any edits made during the demo.
-export const seedOffices: Office[] = [
+// The five offices from the spec. Every column is listed so a reset fully
+// overwrites any edits made during the demo.
+const specOffices: Office[] = [
   {
     id: DEMO_OFFICE_ID,
     name: "Peachtree Family Medicine",
@@ -104,5 +105,122 @@ export const seedOffices: Office[] = [
     redirect_options: ALL_REDIRECTS,
   },
 ];
+
+// Eight more offices so /signals has enough to work with.
+// GLP-1 / diabetes is wanted at 6 offices in total (Peachtree plus 5 here).
+function office(
+  fields: Pick<Office, "id" | "name" | "neighborhood" | "specialty" | "status" | "topics" | "visit_slots" | "weekly_cap">
+): Office {
+  return {
+    address: null,
+    npi: null,
+    today_status: null,
+    today_status_date: null,
+    topics_note: null,
+    redirect_options: ALL_REDIRECTS,
+    ...fields,
+  };
+}
+
+const moreOffices: Office[] = [
+  office({
+    id: "grantpark-internal",
+    name: "Grant Park Internal Medicine",
+    neighborhood: "Grant Park",
+    specialty: "Internal medicine",
+    status: "open",
+    topics: ["GLP-1 / diabetes", "Lipids", "Anticoagulant"],
+    visit_slots: [
+      { day: "Mon", time: "12:00" },
+      { day: "Wed", time: "12:30" },
+    ],
+    weekly_cap: 3,
+  }),
+  office({
+    id: "vahi-endo",
+    name: "Virginia-Highland Endocrinology",
+    neighborhood: "Virginia-Highland",
+    specialty: "Endocrinology",
+    status: "topics",
+    topics: ["GLP-1 / diabetes"],
+    visit_slots: [
+      { day: "Tue", time: "12:00" },
+      { day: "Thu", time: "12:00" },
+    ],
+    weekly_cap: 2,
+  }),
+  office({
+    id: "sandysprings-family",
+    name: "Sandy Springs Family Practice",
+    neighborhood: "Sandy Springs",
+    specialty: "Primary care",
+    status: "topics",
+    topics: ["GLP-1 / diabetes", "Asthma / COPD"],
+    visit_slots: [{ day: "Wed", time: "12:00" }],
+    weekly_cap: 2,
+  }),
+  office({
+    id: "marietta-cardio",
+    name: "Marietta Cardiology",
+    neighborhood: "Marietta",
+    specialty: "Cardiology",
+    status: "open",
+    topics: ["Anticoagulant", "Lipids"],
+    visit_slots: [
+      { day: "Tue", time: "12:30" },
+      { day: "Thu", time: "12:30" },
+    ],
+    weekly_cap: 2,
+  }),
+  // Changed from Closed to Topics only 3 days ago (see seed-history.ts).
+  office({
+    id: "kirkwood-derm",
+    name: "Kirkwood Dermatology",
+    neighborhood: "Kirkwood",
+    specialty: "Dermatology",
+    status: "topics",
+    topics: ["Psoriasis"],
+    visit_slots: [{ day: "Wed", time: "11:30" }],
+    weekly_cap: 1,
+  }),
+  office({
+    id: "eastpoint-health",
+    name: "East Point Community Health",
+    neighborhood: "East Point",
+    specialty: "Primary care",
+    status: "topics",
+    topics: ["GLP-1 / diabetes", "Asthma / COPD"],
+    visit_slots: [
+      { day: "Mon", time: "12:00" },
+      { day: "Fri", time: "12:00" },
+    ],
+    weekly_cap: 3,
+  }),
+  office({
+    id: "brookhaven-internal",
+    name: "Brookhaven Internal Medicine",
+    neighborhood: "Brookhaven",
+    specialty: "Internal medicine",
+    status: "closed",
+    topics: ["Lipids"],
+    visit_slots: [{ day: "Thu", time: "12:00" }],
+    weekly_cap: 2,
+  }),
+  office({
+    id: "o4w-primary",
+    name: "Old Fourth Ward Primary Care",
+    neighborhood: "Old Fourth Ward",
+    specialty: "Primary care",
+    status: "open",
+    topics: ["GLP-1 / diabetes", "Lipids"],
+    visit_slots: [
+      { day: "Tue", time: "11:30" },
+      { day: "Fri", time: "12:30" },
+    ],
+    weekly_cap: 2,
+  }),
+];
+
+export const seedOffices: Office[] = [...specOffices, ...moreOffices];
 
 export const seedBrandBlocks = [{ office_id: DEMO_OFFICE_ID, company: "Meridian Bio" }];

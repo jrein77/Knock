@@ -26,6 +26,7 @@ type DeskRequest = {
   slot_at: string | null;
   overridden: boolean;
   redirect_taken_at: string | null;
+  rep_message: string | null;
   created_at: string;
   drugs: { brand: string } | null;
 };
@@ -241,6 +242,14 @@ function ArrivalCard({
       </div>
 
       <DecisionDetail request={request} />
+
+      {/* The rep's note stays collapsed so the board stays calm. */}
+      {request.rep_message && (
+        <details className="rounded-xl bg-muted px-4 py-3">
+          <summary className="min-h-8 cursor-pointer font-medium">Message from the rep</summary>
+          <p className="pt-2">{request.rep_message}</p>
+        </details>
+      )}
 
       {(canApprove || canDecline) && (
         <div className="flex flex-wrap gap-3">

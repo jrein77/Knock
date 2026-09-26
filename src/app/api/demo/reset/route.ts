@@ -1,13 +1,16 @@
 import { createServerClient } from "@/lib/supabase/server";
 import { pingOffice } from "@/lib/ping";
 import { DEMO_OFFICE_ID, seedBrandBlocks, seedDrugs, seedOffices } from "@/lib/seed";
+import { generateHistory } from "@/lib/seed-history";
 import { upcomingSlots } from "@/lib/week";
 
 // Restores the demo to its starting state:
 // clears requests, rep notes and sign history, restores the seed offices,
-// drugs and brand blocks, and reseeds 1 accepted visit at Peachtree's next slot.
+// drugs and brand blocks, rebuilds 30 days of history for /signals,
+// and reseeds 1 accepted visit at Peachtree's next slot.
 export async function POST() {
   const db = createServerClient();
+  const now = new Date();
 
   // Delete every row. Supabase requires a filter on delete, so match all ids.
   // rep_notes first because they reference requests.
@@ -19,28 +22,49 @@ export async function POST() {
   const blocksCleared = await db.from("brand_blocks").delete().not("office_id", "is", null);
 
   const drugs = await db.from("drugs").upsert(seedDrugs);
-  const now = new Date().toISOString();
   const offices = await db
     .from("offices")
-    .upsert(seedOffices.map((office) => ({ ...office, updated_at: now })));
+    .upsert(seedOffices.map((office) => ({ ...office, updated_at: now.toISOString() })));
   const blocks = await db.from("brand_blocks").insert(seedBrandBlocks);
 
+  // 30 days of past requests, notes and sign changes. Notes reference requests, so requests first.
+  const history = generateHistory(now);
+  const pastRequests = await db.from("requests").insert(history.requests);
+  const [repNotes, signHistory] = await Promise.all([
+    db.from("rep_notes").insert(history.repNotes),
+    db.from("sign_history").insert(history.signHistory),
+  ]);
+
   // The 1 accepted visit this week, so the cap (3) fills during the expo.
+  // The desk approved it anyway. It isn't a Norvance visit, so /signals still shows
+  // Norvance with no accepted GLP-1 visits until someone scans the Glucavia card.
   const peachtree = seedOffices.find((office) => office.id === DEMO_OFFICE_ID)!;
-  const nextSlot = upcomingSlots(new Date(), peachtree.visit_slots)[0];
+  const nextSlot = upcomingSlots(now, peachtree.visit_slots)[0];
   const visit = await db.from("requests").insert({
     office_id: DEMO_OFFICE_ID,
     rep_name: "Dana Brooks",
-    rep_company: "Norvance",
-    drug_id: "glucavia",
+    rep_company: "Helix Pharma",
+    drug_id: "cardexa",
     purpose: "visit",
     source: "fit_list",
     decision: "accepted",
-    reason_code: "slot",
+    reason_code: "off_topic",
+    overridden: true,
     slot_at: nextSlot.toISOString(),
   });
 
-  const results = [...cleared, requestsCleared, blocksCleared, drugs, offices, blocks, visit];
+  const results = [
+    ...cleared,
+    requestsCleared,
+    blocksCleared,
+    drugs,
+    offices,
+    blocks,
+    pastRequests,
+    repNotes,
+    signHistory,
+    visit,
+  ];
   const failed = results.find((result) => result.error);
   if (failed) {
     return Response.json({ ok: false, error: failed.error!.message }, { status: 500 });

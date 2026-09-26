@@ -29,6 +29,11 @@ function nyDate(date: Date): NyDate {
   };
 }
 
+// The weekday in New York for a given instant.
+export function nyWeekday(date: Date): Day {
+  return nyDate(date).weekday;
+}
+
 // Today's date in New York as "YYYY-MM-DD" (matches a Postgres date column).
 export function nyToday(now: Date): string {
   const d = nyDate(now);

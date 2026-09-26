@@ -53,7 +53,8 @@ create table requests (
   reason_code text,
   redirect_action text,
   slot_at timestamptz,
-  message text,
+  message text,                    -- answer text shown to the rep (template)
+  rep_message text check (char_length(rep_message) <= 280), -- optional message from the rep to the office
   overridden boolean not null default false,
   redirect_taken_at timestamptz,   -- when the rep tapped the redirect button
   created_at timestamptz not null default now()
@@ -92,5 +93,5 @@ create policy "public read" on offices for select using (true);
 create policy "public read" on drugs for select using (true);
 -- requests, rep_notes, sign_history, brand_blocks, reps: no anon policy (private).
 
--- The desk gets live updates from a data-free broadcast ping (src/lib/ping.ts), not table changes.
+-- Screens get live updates from a data-free broadcast ping (src/lib/ping.ts), not table changes.
 alter publication supabase_realtime add table offices;

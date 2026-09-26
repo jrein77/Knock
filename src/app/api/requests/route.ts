@@ -17,6 +17,8 @@ const RequestBody = z.object({
   drugId: z.string().nullable(),
   purpose: z.enum(["visit", "drop_samples", "lunch", "safety_notice"]),
   source: z.enum(["qr", "fit_list"]),
+  // Optional note for the office. Shown on the desk; never affects the decision.
+  repMessage: z.string().trim().max(280).optional(),
 });
 
 // A rep asks to visit an office. The decision engine answers from the current Door Sign.
@@ -88,6 +90,7 @@ export async function POST(request: Request) {
       redirect_action: decision.redirectAction,
       slot_at: decision.slotAt?.toISOString() ?? null,
       message,
+      rep_message: body.repMessage || null,
     })
     .select("id")
     .single();

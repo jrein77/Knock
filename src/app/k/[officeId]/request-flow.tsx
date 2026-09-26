@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Textarea } from "@/components/ui/textarea";
 import { redirectDoneText, redirectLabel } from "@/lib/messages";
 import type { DecisionKind, Drug, Purpose, RedirectAction } from "@/lib/types";
 import { formatSlot } from "@/lib/week";
@@ -90,6 +91,7 @@ function Flow({ officeId, officeName, drugs }: FlowProps) {
   const [drugId, setDrugId] = useState<string | null>(null);
   const [safetyNotice, setSafetyNotice] = useState(false);
   const [purpose, setPurpose] = useState<Purpose>("visit");
+  const [repMessage, setRepMessage] = useState("");
 
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -106,6 +108,7 @@ function Flow({ officeId, officeName, drugs }: FlowProps) {
     setDrugId(null);
     setSafetyNotice(false);
     setPurpose("visit");
+    setRepMessage("");
     setAnswer(null);
     setRedirectState("idle");
     setStep("what");
@@ -125,6 +128,7 @@ function Flow({ officeId, officeName, drugs }: FlowProps) {
           drugId,
           purpose: safetyNotice ? "safety_notice" : purpose,
           source: "qr",
+          repMessage,
         }),
       });
       if (!response.ok) throw new Error();
@@ -256,6 +260,20 @@ function Flow({ officeId, officeName, drugs }: FlowProps) {
             </div>
           </div>
         )}
+
+        <div className="flex flex-col gap-2">
+          <Label htmlFor="rep-message" className="text-lg">
+            Message to the office (optional)
+          </Label>
+          <Textarea
+            id="rep-message"
+            value={repMessage}
+            maxLength={280}
+            onChange={(event) => setRepMessage(event.target.value)}
+            className="min-h-24 text-lg md:text-lg"
+          />
+          <p className="text-base text-muted-foreground">{280 - repMessage.length} characters left</p>
+        </div>
 
         {error && <p role="alert">{error}</p>}
 
