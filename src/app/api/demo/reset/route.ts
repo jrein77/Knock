@@ -1,10 +1,10 @@
 import { createServerClient } from "@/lib/supabase/server";
 import { DEMO_OFFICE_ID, seedBrandBlocks, seedDrugs, seedOffices } from "@/lib/seed";
-import { slotInWeek } from "@/lib/week";
+import { upcomingSlots } from "@/lib/week";
 
 // Restores the demo to its starting state:
 // clears requests, rep notes and sign history, restores the seed offices,
-// drugs and brand blocks, and reseeds 1 accepted visit this week at Peachtree.
+// drugs and brand blocks, and reseeds 1 accepted visit at Peachtree's next slot.
 export async function POST() {
   const db = createServerClient();
 
@@ -25,6 +25,8 @@ export async function POST() {
   const blocks = await db.from("brand_blocks").insert(seedBrandBlocks);
 
   // The 1 accepted visit this week, so the cap (3) fills during the expo.
+  const peachtree = seedOffices.find((office) => office.id === DEMO_OFFICE_ID)!;
+  const nextSlot = upcomingSlots(new Date(), peachtree.visit_slots)[0];
   const visit = await db.from("requests").insert({
     office_id: DEMO_OFFICE_ID,
     rep_name: "Dana Brooks",
@@ -34,8 +36,7 @@ export async function POST() {
     source: "fit_list",
     decision: "accepted",
     reason_code: "slot",
-    slot_at: slotInWeek(new Date(), "Tue", "12:30").toISOString(),
-    message: "You're in for Tuesday 12:30, 5 minutes with the team.",
+    slot_at: nextSlot.toISOString(),
   });
 
   const results = [...cleared, requestsCleared, blocksCleared, drugs, offices, blocks, visit];

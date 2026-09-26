@@ -7,7 +7,7 @@
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-sans);
+  --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
   --font-heading: var(--font-sans);
   --color-sidebar-ring: var(--sidebar-ring);
@@ -39,6 +39,12 @@
   --color-popover: var(--popover);
   --color-card-foreground: var(--card-foreground);
   --color-card: var(--card);
+  --color-status-open: var(--status-open);
+  --color-status-open-foreground: var(--status-open-foreground);
+  --color-status-topics: var(--status-topics);
+  --color-status-topics-foreground: var(--status-topics-foreground);
+  --color-status-closed: var(--status-closed);
+  --color-status-closed-foreground: var(--status-closed-foreground);
   --radius-sm: calc(var(--radius) * 0.6);
   --radius-md: calc(var(--radius) * 0.8);
   --radius-lg: var(--radius);
@@ -81,6 +87,15 @@
   --sidebar-accent-foreground: oklch(0.205 0 0);
   --sidebar-border: oklch(0.922 0 0);
   --sidebar-ring: oklch(0.708 0 0);
+
+  /* Status colors: the only color in the app.
+     green = open / accepted, amber = topics / redirected, grey = closed / declined. */
+  --status-open: oklch(0.5 0.13 150);
+  --status-open-foreground: oklch(0.99 0 0);
+  --status-topics: oklch(0.83 0.15 80);
+  --status-topics-foreground: oklch(0.2 0.03 70);
+  --status-closed: oklch(0.45 0 0);
+  --status-closed-foreground: oklch(0.99 0 0);
 }
 
 .dark {
@@ -122,7 +137,7 @@
     @apply border-border outline-ring/50;
   }
   body {
-    @apply bg-background text-foreground;
+    @apply bg-background text-lg text-foreground;
   }
   html {
     @apply font-sans;

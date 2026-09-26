@@ -1,10 +1,12 @@
 // Demo seed data (REQUIREMENTS.md section 8). /api/demo/reset writes this to the database.
 
+import type { Drug, Office, RedirectAction } from "./types";
+
 export const DEMO_OFFICE_ID = "peachtree-family";
 
-const ALL_REDIRECTS = ["drop_samples", "virtual", "next_slot", "leave_materials"];
+const ALL_REDIRECTS: RedirectAction[] = ["drop_samples", "virtual", "next_slot", "leave_materials"];
 
-export const seedDrugs = [
+export const seedDrugs: Drug[] = [
   { id: "glucavia", brand: "Glucavia", company: "Norvance", area: "GLP-1 / diabetes" },
   { id: "cardexa", brand: "Cardexa", company: "Helix Pharma", area: "Anticoagulant" },
   { id: "statora", brand: "Statora", company: "Meridian Bio", area: "Lipids" },
@@ -13,7 +15,7 @@ export const seedDrugs = [
 ];
 
 // Every column is listed so a reset fully overwrites any edits made during the demo.
-export const seedOffices = [
+export const seedOffices: Office[] = [
   {
     id: DEMO_OFFICE_ID,
     name: "Peachtree Family Medicine",

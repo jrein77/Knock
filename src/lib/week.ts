@@ -1,14 +1,17 @@
 // Time helpers. Everything in Knock runs on America/New_York time.
+// "This week" means the next 7 days from now, so the demo works on any day.
+
+import type { Day, VisitSlot } from "./types";
 
 export const TIME_ZONE = "America/New_York";
+export const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 
-export const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"] as const;
-export type Day = (typeof DAYS)[number];
+const DAYS: Day[] = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
 type NyDate = { year: number; month: number; day: number; weekday: Day };
 
 // The calendar date and weekday in New York for a given instant.
-export function nyDate(date: Date): NyDate {
+function nyDate(date: Date): NyDate {
   const parts = new Intl.DateTimeFormat("en-US", {
     timeZone: TIME_ZONE,
     year: "numeric",
@@ -34,35 +37,46 @@ export function nyToday(now: Date): string {
   return `${d.year}-${mm}-${dd}`;
 }
 
-// The instant when it is `time` ("HH:MM") on the given New York calendar date.
-function nyTimeToInstant(year: number, month: number, day: number, time: string): Date {
+// The instant when it is `time` ("HH:MM") in New York, `daysAhead` calendar days after `now`.
+function nyInstant(now: Date, daysAhead: number, time: string): Date {
+  const today = nyDate(now);
   const [hours, minutes] = time.split(":").map(Number);
-  // Pretend the wall-clock time is UTC, then shift by New York's offset at that moment.
-  const asUtc = Date.UTC(year, month - 1, day, hours, minutes);
+  // Pretend the wall-clock time is UTC (Date.UTC handles month and year rollover),
+  // then shift by New York's offset at that moment.
+  const asUtc = Date.UTC(today.year, today.month - 1, today.day + daysAhead, hours, minutes);
   const ny = new Date(asUtc).toLocaleString("en-US", { timeZone: TIME_ZONE });
   const offset = new Date(ny + " UTC").getTime() - asUtc;
   return new Date(asUtc - offset);
 }
 
-// The instant of a weekly slot (e.g. Tue 12:30) in the week containing `now`.
-// Weeks run Monday to Sunday. `weeksAhead` = 1 gives next week's slot.
-export function slotInWeek(now: Date, day: Day, time: string, weeksAhead = 0): Date {
-  const today = nyDate(now);
-  const daysFromToday = DAYS.indexOf(day) - DAYS.indexOf(today.weekday) + weeksAhead * 7;
-  // Date.UTC handles month and year rollover for us.
-  const target = new Date(Date.UTC(today.year, today.month - 1, today.day + daysFromToday));
-  return nyTimeToInstant(
-    target.getUTCFullYear(),
-    target.getUTCMonth() + 1,
-    target.getUTCDate(),
-    time
-  );
+// Each weekly slot's next time after `now` (within 7 days), soonest first.
+export function upcomingSlots(now: Date, slots: VisitSlot[]): Date[] {
+  const today = nyDate(now).weekday;
+
+  const times = slots.map((slot) => {
+    const daysAhead = (DAYS.indexOf(slot.day) - DAYS.indexOf(today) + 7) % 7;
+    const next = nyInstant(now, daysAhead, slot.time);
+    // A slot earlier today has already passed, so use next week's.
+    return next > now ? next : nyInstant(now, daysAhead + 7, slot.time);
+  });
+
+  return times.sort((a, b) => a.getTime() - b.getTime());
 }
 
-// Monday 00:00 and next Monday 00:00 (New York) for the week containing `now`.
-export function weekBounds(now: Date): { start: Date; end: Date } {
-  return {
-    start: slotInWeek(now, "Mon", "00:00"),
-    end: slotInWeek(now, "Mon", "00:00", 1),
-  };
+// e.g. "Tuesday Sep 29, 12:30 PM"
+export function formatSlot(slotAt: Date | string): string {
+  const date = new Date(slotAt);
+  const day = date.toLocaleDateString("en-US", {
+    timeZone: TIME_ZONE,
+    weekday: "long",
+    month: "short",
+    day: "numeric",
+  });
+  const time = date.toLocaleTimeString("en-US", {
+    timeZone: TIME_ZONE,
+    hour: "numeric",
+    minute: "2-digit",
+  });
+  // toLocaleDateString gives "Tuesday, Sep 29"; drop the comma after the weekday.
+  return `${day.replace(",", "")}, ${time}`;
 }
