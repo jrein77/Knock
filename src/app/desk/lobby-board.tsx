@@ -6,13 +6,21 @@ import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import {
+  Drawer,
+  DrawerClose,
+  DrawerContent,
+  DrawerDescription,
+  DrawerHeader,
+  DrawerTitle,
+} from "@/components/ui/drawer";
 import { SignEditor } from "@/components/sign-editor";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { DECISION_STYLE, STATUS_STYLE } from "@/lib/status-style";
 import { useOfficePings } from "@/lib/use-office-pings";
 import type { DecisionKind, Office, Purpose, RedirectAction, Source, Status } from "@/lib/types";
-import { formatSlot, TIME_ZONE } from "@/lib/week";
+import { formatSlot, formatWhen, TIME_ZONE } from "@/lib/week";
 
 type DeskRequest = {
   id: string;
@@ -31,9 +39,18 @@ type DeskRequest = {
   drugs: { brand: string } | null;
 };
 
+type DeskNote = {
+  id: string;
+  rep_name: string | null;
+  body: string;
+  created_at: string;
+  requests: { rep_company: string | null; decision: DecisionKind; drugs: { brand: string } | null } | null;
+};
+
 type DeskData = {
   office: Office & { effective_status: Status };
   requests: DeskRequest[];
+  notes: DeskNote[];
 };
 
 // The desk sees why. Reps never do.
@@ -139,14 +156,17 @@ export function LobbyBoard({ officeId }: { officeId: string }) {
     );
   }
 
-  const { office, requests } = data;
+  const { office, requests, notes } = data;
   const status = STATUS_STYLE[office.effective_status];
 
   return (
     <Board>
       <header className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-3xl font-semibold">{office.name}</h1>
-        <Badge className={`h-auto px-4 py-1.5 text-lg ${status.className}`}>{status.label}</Badge>
+        <div className="flex flex-wrap items-center gap-3">
+          <h1 className="text-3xl font-semibold">{office.name}</h1>
+          <Badge className={`h-auto px-4 py-1.5 text-lg ${status.className}`}>{status.label}</Badge>
+        </div>
+        <NotesChip notes={notes} />
       </header>
 
       {/* Two views only: Today and Our Sign. */}
@@ -203,6 +223,49 @@ export function LobbyBoard({ officeId }: { officeId: string }) {
         </Button>
       </footer>
     </Board>
+  );
+}
+
+// Rep notes: a quiet chip, never an alert. Opens a drawer with every note, newest first.
+function NotesChip({ notes }: { notes: DeskNote[] }) {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <>
+      <Button variant="outline" onClick={() => setOpen(true)} className="h-12 px-4 text-lg">
+        Notes ({notes.length})
+      </Button>
+      <Drawer open={open} onOpenChange={setOpen}>
+        <DrawerContent>
+          <div className="mx-auto flex w-full max-w-2xl flex-col gap-4 overflow-y-auto p-6 text-lg">
+            <DrawerHeader className="p-0">
+              <DrawerTitle className="text-2xl">Notes from reps</DrawerTitle>
+              <DrawerDescription className="text-lg">
+                Reps who think the sign got it wrong.
+              </DrawerDescription>
+            </DrawerHeader>
+            {notes.length === 0 && <p className="text-muted-foreground">No notes yet.</p>}
+            <ul className="flex flex-col gap-3">
+              {notes.map((note) => (
+                <li key={note.id} className="rounded-xl bg-muted px-4 py-3">
+                  <p>{note.body}</p>
+                  <p className="text-base text-muted-foreground">
+                    {note.rep_name}
+                    {note.requests?.rep_company && `, ${note.requests.rep_company}`}
+                    {note.requests?.drugs && ` · ${note.requests.drugs.brand}`}
+                    {note.requests && ` · ${DECISION_STYLE[note.requests.decision].label}`}
+                    {` · ${formatWhen(note.created_at, new Date())}`}
+                  </p>
+                </li>
+              ))}
+            </ul>
+            <DrawerClose render={<Button variant="outline" className="h-14 text-lg" />}>
+              Close
+            </DrawerClose>
+          </div>
+        </DrawerContent>
+      </Drawer>
+    </>
   );
 }
 

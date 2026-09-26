@@ -3,7 +3,7 @@ import { createServerClient } from "@/lib/supabase/server";
 import type { Office } from "@/lib/types";
 import { nyStartOfToday } from "@/lib/week";
 
-// Everything the Lobby Board shows: the office and today's requests, newest first.
+// Everything the Lobby Board shows: the office, today's requests (newest first), and rep notes.
 // Private (reason codes, blocks), so it's read here with the service role, not in the browser.
 export async function GET(request: Request) {
   const officeId = new URL(request.url).searchParams.get("officeId");
@@ -14,7 +14,7 @@ export async function GET(request: Request) {
   const db = createServerClient();
   const now = new Date();
 
-  const [officeResult, requestsResult] = await Promise.all([
+  const [officeResult, requestsResult, notesResult] = await Promise.all([
     db.from("offices").select("*").eq("id", officeId).maybeSingle(),
     db
       .from("requests")
@@ -24,10 +24,17 @@ export async function GET(request: Request) {
       .eq("office_id", officeId)
       .gte("created_at", nyStartOfToday(now).toISOString())
       .order("created_at", { ascending: false }),
+    // Rep notes, newest first, with what the rep asked for and what they were told.
+    db
+      .from("rep_notes")
+      .select("id, rep_name, body, created_at, requests(rep_company, decision, drugs(brand))")
+      .eq("office_id", officeId)
+      .order("created_at", { ascending: false })
+      .limit(50),
   ]);
 
-  if (officeResult.error || requestsResult.error) {
-    const error = officeResult.error ?? requestsResult.error;
+  if (officeResult.error || requestsResult.error || notesResult.error) {
+    const error = officeResult.error ?? requestsResult.error ?? notesResult.error;
     return Response.json({ error: error!.message }, { status: 500 });
   }
   const office = officeResult.data as Office | null;
@@ -38,5 +45,6 @@ export async function GET(request: Request) {
   return Response.json({
     office: { ...office, effective_status: effectiveStatus(office, now) },
     requests: requestsResult.data,
+    notes: notesResult.data,
   });
 }

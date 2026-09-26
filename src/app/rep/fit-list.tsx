@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 import { DoorSign } from "@/components/door-sign";
+import { LeaveNote } from "@/components/leave-note";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -350,6 +351,7 @@ function OfficeCard({
                 {redirectLabel(answer.redirectAction, answer.slotAt)}
               </Button>
             ))}
+          <LeaveNote requestId={answer.requestId} />
         </div>
       ) : (
         <Button onClick={requestVisit} disabled={sending} className="h-14 w-full text-lg">

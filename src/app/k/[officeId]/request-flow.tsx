@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useSyncExternalStore } from "react";
+import { LeaveNote } from "@/components/leave-note";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -288,6 +289,8 @@ function Flow({ officeId, officeName, drugs }: FlowProps) {
         ))}
 
       {error && <p role="alert">{error}</p>}
+
+      <LeaveNote requestId={answer.requestId} />
 
       <button type="button" onClick={startOver} className="min-h-12 self-start underline">
         Make another request
