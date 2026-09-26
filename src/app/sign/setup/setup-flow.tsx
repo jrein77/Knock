@@ -14,6 +14,7 @@ import { Textarea } from "@/components/ui/textarea";
 import type { SignChange } from "@/lib/sign";
 import { REDIRECT_OPTION_LABELS, STATUS_STYLE } from "@/lib/status-style";
 import type { Office, RedirectAction, Status, VisitSlot } from "@/lib/types";
+import { DescribeSign, type Mode, type ParsedSign } from "./describe-sign";
 
 // Everything setup asks about. It starts as the current sign and is saved in one go.
 type Draft = {
@@ -68,6 +69,9 @@ export function SetupFlow({ officeId }: { officeId: string }) {
   const [draft, setDraft] = useState<Draft | null>(null);
   const [stepIndex, setStepIndex] = useState(0);
   const [saving, setSaving] = useState(false);
+  const [mode, setMode] = useState<Mode>("type");
+  // What the last "Fill in my sign" filled, listed on the review step so the doctor checks it.
+  const [filled, setFilled] = useState<string[] | null>(null);
 
   // Start from the office's current sign, once.
   useEffect(() => {
@@ -105,6 +109,57 @@ export function SetupFlow({ officeId }: { officeId: string }) {
   const step = STEPS[stepIndex];
   const isLast = stepIndex === STEPS.length - 1;
   const update = (fields: Partial<Draft>) => setDraft({ ...draft, ...fields });
+
+  // Apply what Grok read from the doctor's own words, then show the whole sign to check.
+  function applyParsed(parsed: ParsedSign) {
+    if (!draft) return;
+    const before = draft;
+    const fields: Partial<Draft> = {};
+    const names: string[] = [];
+    if (parsed.status) {
+      fields.status = parsed.status;
+      names.push("Status");
+    }
+    if (parsed.topics) {
+      fields.topics = parsed.topics;
+      names.push("Topics");
+    }
+    if (parsed.topicsNote) {
+      fields.topicsNote = parsed.topicsNote;
+      names.push("Note to reps");
+    }
+    if (parsed.visitSlots) {
+      fields.visitSlots = parsed.visitSlots;
+      names.push("Visit times");
+    }
+    if (parsed.weeklyCap !== null) {
+      fields.weeklyCap = parsed.weeklyCap;
+      names.push(`Weekly limit (${parsed.weeklyCap}, private)`);
+    }
+    if (parsed.redirectOptions) {
+      fields.redirectOptions = parsed.redirectOptions;
+      names.push("Instead of a visit");
+    }
+    if (names.length === 0) {
+      toast("We didn't catch anything about rep visits in that. Try again, or use the buttons.");
+      return;
+    }
+
+    setDraft({ ...draft, ...fields });
+    setFilled(names);
+    setStepIndex(STEPS.indexOf("review"));
+    // Undo, never confirm.
+    toast(`Filled in ${names.length === 1 ? "1 answer" : `${names.length} answers`}. Check your sign.`, {
+      duration: 10_000,
+      action: {
+        label: "Undo",
+        onClick: () => {
+          setDraft(before);
+          setFilled(null);
+        },
+      },
+    });
+  }
 
   async function save() {
     if (!draft) return;
@@ -157,9 +212,25 @@ export function SetupFlow({ officeId }: { officeId: string }) {
   return (
     <Frame>
       <header className="flex flex-col gap-3">
-        <p className="text-muted-foreground">
-          Step {stepIndex + 1} of {STEPS.length}
-        </p>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <p className="text-muted-foreground">
+            Step {stepIndex + 1} of {STEPS.length}
+          </p>
+          {/* Talk / Type: both fill the same draft, and switching keeps every answer. */}
+          <div className="flex gap-2">
+            {(["type", "talk"] as const).map((option) => (
+              <Button
+                key={option}
+                variant={mode === option ? "default" : "outline"}
+                aria-pressed={mode === option}
+                onClick={() => setMode(option)}
+                className="h-12 px-5 text-lg"
+              >
+                {option === "type" ? "Type" : "Talk"}
+              </Button>
+            ))}
+          </div>
+        </div>
         <Progress value={((stepIndex + 1) / STEPS.length) * 100} />
         <h1 className="text-3xl font-semibold">{STEP_TITLES[step]}</h1>
         {STEP_HINTS[step] && <p className="text-muted-foreground">{STEP_HINTS[step]}</p>}
@@ -233,11 +304,28 @@ export function SetupFlow({ officeId }: { officeId: string }) {
             />
           )}
 
+          {step === "review" && filled && (
+            <div className="flex flex-col gap-2">
+              <p className="font-medium">Filled in from what you said:</p>
+              <ul className="list-disc pl-6">
+                {filled.map((name) => (
+                  <li key={name}>{name}</li>
+                ))}
+              </ul>
+              <p>Go Back to change any of them.</p>
+            </div>
+          )}
+
           {step === "review" && (
             <p>
               Check the sign. It takes effect on the very next request, and you can undo it right
               after saving.
             </p>
+          )}
+
+          {/* Say it all at once. Talk mode offers it on every question; Type mode on the first. */}
+          {step !== "who" && step !== "review" && (mode === "talk" || step === "status") && (
+            <DescribeSign mode={mode} onFilled={applyParsed} />
           )}
 
           <div className="flex gap-3 pt-2">

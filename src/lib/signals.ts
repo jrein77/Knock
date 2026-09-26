@@ -1,10 +1,10 @@
 import "server-only";
-import { effectiveStatus } from "./decide";
+import { decide, effectiveStatus } from "./decide";
 import type { SignSnapshot } from "./sign";
 import { REDIRECT_OPTION_LABELS, STATUS_STYLE } from "./status-style";
 import type { createServerClient } from "./supabase/server";
 import type { Day, DecisionKind, Drug, Office, Purpose, RedirectAction } from "./types";
-import { currentSlots, DAY_NAMES, DAYS, formatClock, nyWeekday } from "./week";
+import { currentSlots, DAY_NAMES, DAYS, formatClock, nyWeekday, WEEK_MS } from "./week";
 
 // Demand Signals: what practices have declared on their Door Signs (not prescribing data),
 // and what happened when reps asked. Plain counts, written as sentences a brand team can act on.
@@ -37,6 +37,8 @@ export type Signals = {
   misses: {
     sentence: string;
     parts: { label: string; count: number; tone: "topics" | "closed" | "neutral" }[];
+    // Walk-ins that were turned away, and where the same rep could have booked instead.
+    rerouted: { sentence: string; offices: string[] } | null;
   } | null;
   cancellations: {
     sentence: string;
@@ -53,6 +55,7 @@ type RequestRow = {
   rep_company: string | null;
   drug_id: string | null;
   purpose: Purpose;
+  source: "qr" | "fit_list";
   decision: DecisionKind;
   reason_code: string | null;
   created_at: string;
@@ -82,21 +85,37 @@ export async function loadSignals(
 ): Promise<Signals> {
   const since = new Date(now.getTime() - days * DAY_MS).toISOString();
 
-  const [officesResult, drugsResult, requestsResult, historyResult, notesResult] = await Promise.all([
+  const [officesResult, drugsResult, requestsResult, historyResult, notesResult, blocksResult, bookedResult] =
+    await Promise.all([
     db.from("offices").select("*").order("name"),
     db.from("drugs").select("*"),
     db
       .from("requests")
       .select(
-        "id, office_id, rep_company, drug_id, purpose, decision, reason_code, created_at, rep_canceled_at, overridden, original_decision"
+        "id, office_id, rep_company, drug_id, purpose, source, decision, reason_code, created_at, rep_canceled_at, overridden, original_decision"
       )
       .gte("created_at", since),
     db.from("sign_history").select("office_id, before, after, created_at").gte("created_at", since),
     db.from("rep_notes").select("office_id, request_id, rep_name, body").gte("created_at", since),
+    // For "where could they have gone instead": each office's blocks and visits booked this week.
+    db.from("brand_blocks").select("office_id, company"),
+    db
+      .from("requests")
+      .select("office_id")
+      .eq("decision", "accepted")
+      .is("rep_canceled_at", null)
+      .gte("slot_at", now.toISOString())
+      .lt("slot_at", new Date(now.getTime() + WEEK_MS).toISOString()),
   ]);
-  const failed = [officesResult, drugsResult, requestsResult, historyResult, notesResult].find(
-    (result) => result.error
-  );
+  const failed = [
+    officesResult,
+    drugsResult,
+    requestsResult,
+    historyResult,
+    notesResult,
+    blocksResult,
+    bookedResult,
+  ].find((result) => result.error);
   if (failed) throw new Error(failed.error!.message);
 
   const offices = officesResult.data as Office[];
@@ -219,6 +238,51 @@ export async function loadSignals(
       ? `Most practices asking for ${yourTopics} see reps on ${DAY_NAMES[mostCommon(slots.map((s) => s.day))]}s, around ${formatClock(mostCommon(slots.map((s) => s.time)))}.`
       : null;
 
+  // --- Where turned-away walk-ins could have gone ---
+  // A rep who drove over and scanned the QR, then got a "not now", wasted the trip.
+  // Run each of those requests through the decision engine again, against every other
+  // practice's sign as it stands today: would anyone have said yes to that rep and drug?
+  // This is exactly what the fit list would have told them before they drove.
+  const blocks = blocksResult.data ?? [];
+  const bookedThisWeek = bookedResult.data ?? [];
+  function reroute(missed: RequestRow[]): NonNullable<Signals["misses"]>["rerouted"] {
+    const walkIns = missed.filter((r) => r.source === "qr" && isVisit(r) && r.drug_id);
+    if (walkIns.length === 0) return null;
+
+    const welcomingOffices = new Set<string>();
+    let couldHaveBooked = 0;
+    for (const r of walkIns) {
+      const drug = drugById.get(r.drug_id!) ?? null;
+      const yes = offices.filter(
+        (office) =>
+          office.id !== r.office_id &&
+          decide({
+            office,
+            brandBlocks: blocks.filter((b) => b.office_id === office.id).map((b) => b.company),
+            drug,
+            repCompany: r.rep_company ?? drug?.company ?? "",
+            purpose: r.purpose,
+            acceptedThisWeek: bookedThisWeek.filter((b) => b.office_id === office.id).length,
+            now,
+          }).decision === "accepted"
+      );
+      if (yes.length > 0) couldHaveBooked += 1;
+      for (const office of yes) welcomingOffices.add(office.name);
+    }
+
+    const trips = count(walkIns.length, "rep drove to a practice", "reps drove to practices");
+    const instead =
+      couldHaveBooked === 0
+        ? "Asking on Knock first would have saved every one of those trips."
+        : `Asking on Knock first would have saved every one of those trips, and ${
+            couldHaveBooked === walkIns.length ? "all" : couldHaveBooked
+          } of them could have booked a visit this week somewhere that wants them.`;
+    return {
+      sentence: `${trips} and got turned away at the desk. ${instead}`,
+      offices: [...welcomingOffices].sort(),
+    };
+  }
+
   // --- Why visits were declined. "blocked" and "closed" are both "not taking visits". ---
   let misses: Signals["misses"] = null;
   const missed = requests.filter((r) => r.decision !== "accepted");
@@ -251,6 +315,7 @@ export async function loadSignals(
     misses = {
       sentence: `${share}% of the ${count(missed.length, "request", "requests")} that didn't become visits were because ${because[top.label]}.`,
       parts,
+      rerouted: reroute(missed),
     };
   }
 

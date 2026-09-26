@@ -214,6 +214,16 @@ function MissesSection({ misses }: { misses: NonNullable<Signals["misses"]> }) {
             </li>
           ))}
         </ul>
+        {misses.rerouted && (
+          <div className="flex flex-col gap-1 border-t pt-4">
+            <p>{misses.rerouted.sentence}</p>
+            {misses.rerouted.offices.length > 0 && (
+              <p className="text-muted-foreground">
+                Saying yes this week: {misses.rerouted.offices.join(", ")}
+              </p>
+            )}
+          </div>
+        )}
       </Card>
     </Section>
   );
