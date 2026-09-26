@@ -1,6 +1,7 @@
 import { decide, type Decision } from "@/lib/decide";
 import { createServerClient } from "@/lib/supabase/server";
 import type { DecisionKind, Drug, Office } from "@/lib/types";
+import { milesBetween } from "@/lib/distance";
 import { formatVisit, WEEK_MS } from "@/lib/week";
 
 // The rep's fit list: every office, colored by what the decision engine would answer
@@ -17,17 +18,18 @@ const FIT_BY_DECISION: Record<DecisionKind, Fit> = {
 };
 const RANK: Record<DecisionKind, number> = { accepted: 0, redirected: 1, declined: 2 };
 
-function reasonText(decision: Decision, drug: Drug): string {
+// One short line for the row. The section heading already says good fit / maybe / not now.
+function reasonText(decision: Decision): string {
   switch (decision.reasonCode) {
     case "slot":
-      return `Good fit for ${drug.brand}. Next visit ${formatVisit(decision.slotAt!, decision.slotEnd)}`;
+      return `Next visit ${formatVisit(decision.slotAt!, decision.slotEnd, true)}`;
     case "off_topic":
       return "Doesn't list your topics right now";
     case "cap_full":
-      return `No open visit this week. Next is ${formatVisit(decision.slotAt!, decision.slotEnd)}`;
+      return `Full this week. Next: ${formatVisit(decision.slotAt!, decision.slotEnd, true)}`;
     case "no_slots":
       return decision.slotAt
-        ? `No visit times this week. Next is ${formatVisit(decision.slotAt, decision.slotEnd)}`
+        ? `No times this week. Next: ${formatVisit(decision.slotAt, decision.slotEnd, true)}`
         : "No visit times posted";
     case "blocked":
       return "Not taking visits for your products right now";
@@ -39,6 +41,12 @@ function reasonText(decision: Decision, drug: Drug): string {
 export async function GET(request: Request) {
   const params = new URL(request.url).searchParams;
   const company = params.get("company")?.trim() ?? "";
+  // The rep's location, if their phone shared it. Only used to measure distance; never stored.
+  const repLat = Number(params.get("lat"));
+  const repLng = Number(params.get("lng"));
+  const here = params.has("lat") && params.has("lng") && isFinite(repLat) && isFinite(repLng)
+    ? { lat: repLat, lng: repLng }
+    : null;
   const drugIds = (params.get("drugs") ?? "").split(",").filter(Boolean);
   if (!company || drugIds.length === 0) {
     return Response.json({ error: "company and drugs are required" }, { status: 400 });
@@ -101,14 +109,24 @@ export async function GET(request: Request) {
       topics: office.topics,
       visitSlots: office.visit_slots,
       fit: FIT_BY_DECISION[best.decision.decision],
-      reason: reasonText(best.decision, best.drug),
+      reason: reasonText(best.decision),
       drugId: best.drug.id,
+      drugBrand: best.drug.brand,
+      distanceMiles:
+        here && office.lat != null && office.lng != null
+          ? Math.round(milesBetween(here, { lat: office.lat, lng: office.lng }) * 10) / 10
+          : null,
     };
   });
 
-  // Green first, then amber, then grey. Alphabetical within each.
+  // Green first, then amber, then grey. Within each: nearest first, or alphabetical without a location.
   const order: Record<Fit, number> = { green: 0, amber: 1, grey: 2 };
-  fits.sort((a, b) => order[a.fit] - order[b.fit] || a.name.localeCompare(b.name));
+  fits.sort(
+    (a, b) =>
+      order[a.fit] - order[b.fit] ||
+      (a.distanceMiles ?? Infinity) - (b.distanceMiles ?? Infinity) ||
+      a.name.localeCompare(b.name)
+  );
 
   return Response.json({ offices: fits });
 }

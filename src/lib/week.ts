@@ -216,22 +216,27 @@ export function formatWhen(iso: string, now: Date): string {
 }
 
 // A booked visit: "Tuesday Sep 29, 12:30 PM", or with a window "Tuesday Sep 29, 12:00 PM to 1:00 PM".
-export function formatVisit(slotAt: Date | string, slotEnd?: Date | string | null): string {
-  if (!slotEnd) return formatSlot(slotAt);
+// `short` gives "Mon Sep 28" instead of "Monday Sep 28", for tight rows.
+export function formatVisit(
+  slotAt: Date | string,
+  slotEnd?: Date | string | null,
+  short = false
+): string {
+  if (!slotEnd) return formatSlot(slotAt, short);
   const endTime = new Date(slotEnd).toLocaleTimeString("en-US", {
     timeZone: TIME_ZONE,
     hour: "numeric",
     minute: "2-digit",
   });
-  return `${formatSlot(slotAt)} to ${endTime}`;
+  return `${formatSlot(slotAt, short)} to ${endTime}`;
 }
 
 // e.g. "Tuesday Sep 29, 12:30 PM"
-export function formatSlot(slotAt: Date | string): string {
+export function formatSlot(slotAt: Date | string, short = false): string {
   const date = new Date(slotAt);
   const day = date.toLocaleDateString("en-US", {
     timeZone: TIME_ZONE,
-    weekday: "long",
+    weekday: short ? "short" : "long",
     month: "short",
     day: "numeric",
   });

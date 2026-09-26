@@ -221,6 +221,26 @@ const moreOffices: Office[] = [
   }),
 ];
 
-export const seedOffices: Office[] = [...specOffices, ...moreOffices];
+// Where each demo office is: the middle of its Atlanta neighborhood.
+const LOCATIONS: Record<string, { lat: number; lng: number }> = {
+  "peachtree-family": { lat: 33.7838, lng: -84.383 }, // Midtown
+  "decatur-heart": { lat: 33.7748, lng: -84.2963 },
+  "buckhead-derm": { lat: 33.84, lng: -84.3797 },
+  "inman-pulm": { lat: 33.757, lng: -84.3525 },
+  "westend-peds": { lat: 33.7367, lng: -84.415 },
+  "grantpark-internal": { lat: 33.7361, lng: -84.37 },
+  "vahi-endo": { lat: 33.7813, lng: -84.353 },
+  "sandysprings-family": { lat: 33.9304, lng: -84.3733 },
+  "marietta-cardio": { lat: 33.9526, lng: -84.5499 },
+  "kirkwood-derm": { lat: 33.7507, lng: -84.3208 },
+  "eastpoint-health": { lat: 33.6796, lng: -84.4394 },
+  "brookhaven-internal": { lat: 33.8651, lng: -84.3366 },
+  "o4w-primary": { lat: 33.765, lng: -84.371 },
+};
+
+export const seedOffices: Office[] = [...specOffices, ...moreOffices].map((office) => ({
+  ...office,
+  ...LOCATIONS[office.id],
+}));
 
 export const seedBrandBlocks = [{ office_id: DEMO_OFFICE_ID, company: "Meridian Bio" }];

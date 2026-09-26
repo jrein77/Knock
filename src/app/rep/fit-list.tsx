@@ -24,9 +24,16 @@ type FitOffice = {
   topics: string[];
   visitSlots: VisitSlot[];
   fit: Fit;
-  reason: string;
+  reason: string; // one short line: next visit, or why not
   drugId: string;
+  drugBrand: string;
+  distanceMiles: number | null; // null without the rep's location
 };
+
+// Offices farther than this collapse into "Farther away".
+const NEARBY_MILES = 10;
+
+type Here = { lat: number; lng: number };
 
 type Answer = {
   requestId: string;
@@ -80,7 +87,7 @@ function FitListInBrowser({ drugs }: { drugs: Drug[] }) {
   return <Offices rep={rep} setRep={setRep} drugs={drugs} onChange={() => setEditing(true)} />;
 }
 
-// Picked once, on two short screens: who you are, then what you carry.
+// Picked once, on two short screens: who you are, then your products.
 function RepSetup({
   drugs,
   initial,
@@ -109,7 +116,7 @@ function RepSetup({
       <Screen>
         <header>
           <h1 className="text-3xl font-semibold">Know before you go</h1>
-          <p className="text-muted-foreground">See which offices want what you carry.</p>
+          <p className="text-muted-foreground">See which offices want to hear about your products.</p>
         </header>
         <form
           className="flex flex-col gap-5"
@@ -143,9 +150,9 @@ function RepSetup({
   return (
     <Screen>
       <header>
-        <h1 className="text-3xl font-semibold">What do you carry?</h1>
+        <h1 className="text-3xl font-semibold">Your products</h1>
         <p className="text-muted-foreground">
-          {rep.name}, {rep.company}.{" "}
+          Pick the drugs you&apos;re promoting. {rep.name}, {rep.company}.{" "}
           <button type="button" onClick={() => setScreen("who")} className="min-h-12 underline">
             Change
           </button>
@@ -172,11 +179,40 @@ function Offices({
 }) {
   const [offices, setOffices] = useState<FitOffice[] | null>(null);
   const [loadFailed, setLoadFailed] = useState(false);
+  const [expanded, setExpanded] = useState<string | null>(null); // one open row at a time
+  const [here, setHere] = useState<Here | null>(null);
+  const [locating, setLocating] = useState<"asking" | "found" | "unavailable">(() =>
+    "geolocation" in navigator ? "asking" : "unavailable"
+  );
   const drugIds = (rep.drugIds ?? []).join(",");
+
+  // Where is the rep? Only used to sort offices by distance, never stored.
+  const askForLocation = useCallback(() => {
+    if (!("geolocation" in navigator)) return;
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        setHere({ lat: position.coords.latitude, lng: position.coords.longitude });
+        setLocating("found");
+      },
+      () => setLocating("unavailable"),
+      { timeout: 8000, maximumAge: 5 * 60 * 1000 }
+    );
+  }, []);
+  useEffect(askForLocation, [askForLocation]); // once, when the list opens
+
+  // "Use my location" after a first no.
+  function locate() {
+    setLocating("asking");
+    askForLocation();
+  }
 
   const load = useCallback(async () => {
     try {
       const params = new URLSearchParams({ company: rep.company, drugs: drugIds });
+      if (here) {
+        params.set("lat", String(here.lat));
+        params.set("lng", String(here.lng));
+      }
       const response = await fetch(`/api/fit?${params}`, { cache: "no-store" });
       if (!response.ok) throw new Error();
       setOffices((await response.json()).offices);
@@ -184,7 +220,7 @@ function Offices({
     } catch {
       setLoadFailed(true);
     }
-  }, [rep.company, drugIds]);
+  }, [rep.company, drugIds, here]);
 
   // Door Signs are public, so the phone can listen for sign changes directly.
   useEffect(() => {
@@ -199,23 +235,49 @@ function Offices({
     };
   }, [load]);
 
-  const carrying = drugs
-    .filter((drug) => rep.drugIds?.includes(drug.id))
-    .map((drug) => drug.brand)
-    .join(", ");
-  const worthIt = offices?.filter((office) => office.fit !== "grey") ?? [];
-  const notNow = offices?.filter((office) => office.fit === "grey") ?? [];
+  const myDrugs = drugs.filter((drug) => rep.drugIds?.includes(drug.id));
+  const productsText = myDrugs.length === 1 ? myDrugs[0].brand : "your products";
+
+  // Nearby offices by fit; far ones (with a known location) collapse at the bottom.
+  const all = offices ?? [];
+  const isFar = (office: FitOffice) => office.distanceMiles !== null && office.distanceMiles > NEARBY_MILES;
+  const nearby = all.filter((office) => !isFar(office));
+  const goodFits = nearby.filter((office) => office.fit === "green");
+  const maybes = nearby.filter((office) => office.fit === "amber");
+  const notNow = nearby.filter((office) => office.fit === "grey");
+  const farAway = all.filter(isFar);
+
+  const rowFor = (office: FitOffice) => (
+    <OfficeRow
+      key={office.id}
+      office={office}
+      rep={rep}
+      setRep={setRep}
+      onAsked={load}
+      expanded={expanded === office.id}
+      onToggle={() => setExpanded(expanded === office.id ? null : office.id)}
+    />
+  );
 
   return (
     <Screen>
       <header className="flex flex-col gap-1">
-        <h1 className="text-3xl font-semibold">Your offices</h1>
+        <h1 className="text-3xl font-semibold">{here ? "Offices near you" : "Your offices"}</h1>
         <p className="text-muted-foreground">
-          {rep.name}, {rep.company} · {carrying}.{" "}
+          {rep.name}, {rep.company} · {myDrugs.map((drug) => drug.brand).join(", ")}.{" "}
           <button type="button" onClick={onChange} className="min-h-12 underline">
             Change
           </button>
         </p>
+        {locating === "asking" && <p className="text-muted-foreground">Finding offices near you...</p>}
+        {locating === "unavailable" && (
+          <p className="text-muted-foreground">
+            <button type="button" onClick={locate} className="min-h-12 underline">
+              Use my location
+            </button>{" "}
+            to see what&apos;s close.
+          </p>
+        )}
       </header>
 
       {!offices &&
@@ -223,46 +285,83 @@ function Offices({
           <p>Couldn&apos;t load offices. Check the connection and try again.</p>
         ) : (
           <>
-            <Skeleton className="h-80 w-full rounded-3xl" />
-            <Skeleton className="h-80 w-full rounded-3xl" />
+            <Skeleton className="h-16 w-full" />
+            <Skeleton className="h-16 w-full" />
+            <Skeleton className="h-16 w-full" />
           </>
         ))}
 
-      {worthIt.map((office) => (
-        <OfficeCard key={office.id} office={office} rep={rep} setRep={setRep} onAsked={load} />
-      ))}
-
-      {/* Grey offices stay collapsed at the bottom. */}
-      {notNow.length > 0 && (
-        <details className="rounded-2xl bg-muted px-5 py-3">
-          <summary className="min-h-12 cursor-pointer py-2 text-lg font-medium">
-            Not taking visits right now ({notNow.length})
-          </summary>
-          <ul className="flex flex-col gap-3 pt-2 pb-2">
-            {notNow.map((office) => (
-              <li key={office.id}>
-                <p className="font-medium">{office.name}</p>
-                <p className="text-muted-foreground">{office.reason}</p>
-              </li>
-            ))}
-          </ul>
-        </details>
+      {offices && (
+        <>
+          <OfficeSection title={`Good fits for ${productsText}`} count={goodFits.length}>
+            {goodFits.map(rowFor)}
+          </OfficeSection>
+          <OfficeSection title="Maybe" count={maybes.length}>
+            {maybes.map(rowFor)}
+          </OfficeSection>
+          <OfficeSection title="Not taking visits right now" count={notNow.length} collapsed>
+            {notNow.map(rowFor)}
+          </OfficeSection>
+          <OfficeSection title={`Farther than ${NEARBY_MILES} miles`} count={farAway.length} collapsed>
+            {farAway.map(rowFor)}
+          </OfficeSection>
+        </>
       )}
     </Screen>
   );
 }
 
-// One office: why it fits, its Door Sign, and a request button.
-function OfficeCard({
+// A titled list of office rows. Collapsed sections open with a tap.
+function OfficeSection({
+  title,
+  count,
+  collapsed,
+  children,
+}: {
+  title: string;
+  count: number;
+  collapsed?: boolean;
+  children: React.ReactNode;
+}) {
+  if (count === 0) return null;
+  const list = <ul className="divide-y overflow-hidden rounded-2xl border bg-card">{children}</ul>;
+
+  if (collapsed) {
+    return (
+      <details className="flex flex-col gap-2">
+        <summary className="min-h-12 cursor-pointer py-2 text-lg font-semibold">
+          {title} ({count})
+        </summary>
+        {list}
+      </details>
+    );
+  }
+  return (
+    <section className="flex flex-col gap-2">
+      <h2 className="text-lg font-semibold">
+        {title} ({count})
+      </h2>
+      {list}
+    </section>
+  );
+}
+
+// One office as a line item: fit color, name, where, and the one line that matters.
+// Tapping it shows what they want, their visit times, and the request button.
+function OfficeRow({
   office,
   rep,
   setRep,
   onAsked,
+  expanded,
+  onToggle,
 }: {
   office: FitOffice;
   rep: SavedRep;
   setRep: (rep: SavedRep) => void;
   onAsked: () => void;
+  expanded: boolean;
+  onToggle: () => void;
 }) {
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -314,17 +413,33 @@ function OfficeCard({
     }
   }
 
+  const where = [
+    office.neighborhood,
+    office.distanceMiles !== null && `${office.distanceMiles} mi`,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+
   return (
-    <article className="flex flex-col gap-3">
-      <div className="overflow-hidden rounded-2xl bg-card shadow-sm ring-1 ring-foreground/10">
-        <p className={`px-5 py-3 text-lg font-medium ${FIT_STYLE[office.fit]}`}>{office.reason}</p>
-        <div className="flex flex-col gap-2 px-5 py-4">
-          <div>
-            <h2 className="text-xl font-semibold">{office.name}</h2>
-            <p className="text-muted-foreground">
-              {[office.specialty, office.neighborhood].filter(Boolean).join(" · ")}
-            </p>
-          </div>
+    <li>
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={expanded}
+        className="flex min-h-16 w-full items-center gap-3 px-4 py-3 text-left hover:bg-muted/60"
+      >
+        <span aria-hidden className={`size-3 shrink-0 rounded-full ${FIT_STYLE[office.fit]}`} />
+        <span className="min-w-0 flex-1">
+          <span className="block text-lg font-semibold">{office.name}</span>
+          <span className="block text-base text-muted-foreground">
+            {where && `${where} · `}
+            {office.reason}
+          </span>
+        </span>
+      </button>
+
+      {expanded && (
+        <div className="flex flex-col gap-3 px-4 pb-4 text-lg">
           <p>
             <span className="text-muted-foreground">Wants </span>
             {office.topics.length > 0 ? office.topics.join(", ") : "no specific topics"}
@@ -333,44 +448,41 @@ function OfficeCard({
             <span className="text-muted-foreground">Visits </span>
             {visitTimes(office.visitSlots)}
           </p>
-        </div>
-      </div>
 
-      {answer ? (
-        <div
-          className={`flex flex-col gap-3 rounded-2xl px-5 py-4 ${DECISION_STYLE[answer.decision].className}`}
-        >
-          <p className="text-2xl font-semibold">{ANSWER_TITLE[answer.decision]}</p>
-          {answer.decision === "accepted" && answer.slotAt && (
-            <p className="text-xl font-medium">
-              {formatVisit(answer.slotAt, answer.slotEnd)}, 5 minutes with the team
-            </p>
+          {answer ? (
+            <div
+              className={`flex flex-col gap-3 rounded-2xl px-5 py-4 ${DECISION_STYLE[answer.decision].className}`}
+            >
+              <p className="text-2xl font-semibold">{ANSWER_TITLE[answer.decision]}</p>
+              {answer.decision === "accepted" && answer.slotAt && (
+                <p className="text-xl font-medium">
+                  {formatVisit(answer.slotAt, answer.slotEnd)}, 5 minutes with the team
+                </p>
+              )}
+              <p>{answer.message}</p>
+              {answer.redirectAction &&
+                (redirectState === "done" ? (
+                  <p className="font-medium">{redirectDoneText(answer.redirectAction, answer.slotAt)}</p>
+                ) : (
+                  <Button
+                    onClick={takeRedirect}
+                    disabled={redirectState === "sending"}
+                    className="h-auto min-h-14 w-full bg-background py-3 text-lg whitespace-normal text-foreground hover:bg-background/90"
+                  >
+                    {redirectLabel(answer.redirectAction, answer.slotAt)}
+                  </Button>
+                ))}
+              <LeaveNote requestId={answer.requestId} />
+            </div>
+          ) : (
+            <Button onClick={requestVisit} disabled={sending} className="h-12 self-start px-5 text-lg">
+              {sending ? "Asking..." : `Request a visit (${office.drugBrand})`}
+            </Button>
           )}
-          <p className="text-lg">{answer.message}</p>
-          {answer.redirectAction &&
-            (redirectState === "done" ? (
-              <p className="text-lg font-medium">
-                {redirectDoneText(answer.redirectAction, answer.slotAt)}
-              </p>
-            ) : (
-              <Button
-                onClick={takeRedirect}
-                disabled={redirectState === "sending"}
-                className="h-auto min-h-14 w-full bg-background py-3 text-lg whitespace-normal text-foreground hover:bg-background/90"
-              >
-                {redirectLabel(answer.redirectAction, answer.slotAt)}
-              </Button>
-            ))}
-          <LeaveNote requestId={answer.requestId} />
+          {error && <p role="alert">{error}</p>}
         </div>
-      ) : (
-        <Button onClick={requestVisit} disabled={sending} className="h-14 w-full text-lg">
-          {sending ? "Asking..." : "Request a visit"}
-        </Button>
       )}
-
-      {error && <p role="alert">{error}</p>}
-    </article>
+    </li>
   );
 }
 

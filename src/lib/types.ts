@@ -19,6 +19,8 @@ export type Office = {
   neighborhood: string | null;
   specialty: string | null;
   address: string | null;
+  lat?: number | null; // location, for sorting the rep fit list by distance
+  lng?: number | null;
   npi: string | null;
   status: Status;
   today_status: Status | null;

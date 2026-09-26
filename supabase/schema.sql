@@ -6,6 +6,8 @@ create table offices (
   neighborhood text,
   specialty text,
   address text,
+  lat double precision,            -- location, for sorting the rep fit list by distance
+  lng double precision,
   npi text,
   status text not null default 'topics' check (status in ('open','topics','closed')),
   today_status text check (today_status in ('open','topics','closed')),
