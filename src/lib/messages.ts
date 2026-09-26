@@ -45,3 +45,17 @@ export function redirectLabel(action: RedirectAction, slotAt: Date | string | nu
       return "Leave materials at the front desk";
   }
 }
+
+// Shown after the rep taps the redirect button. The desk sees it on the Lobby Board.
+export function redirectDoneText(action: RedirectAction, slotAt: Date | string | null): string {
+  switch (action) {
+    case "drop_samples":
+      return "Done. The front desk knows you're dropping off samples.";
+    case "virtual":
+      return "Done. The office will reach out to set up a virtual meeting.";
+    case "next_slot":
+      return slotAt ? `You're booked for ${formatSlot(slotAt)}.` : "You're booked for the next open slot.";
+    case "leave_materials":
+      return "Done. The front desk knows you're leaving materials.";
+  }
+}

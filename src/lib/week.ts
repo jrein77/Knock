@@ -49,6 +49,11 @@ function nyInstant(now: Date, daysAhead: number, time: string): Date {
   return new Date(asUtc - offset);
 }
 
+// Midnight today in New York.
+export function nyStartOfToday(now: Date): Date {
+  return nyInstant(now, 0, "00:00");
+}
+
 // Each weekly slot's next time after `now` (within 7 days), soonest first.
 export function upcomingSlots(now: Date, slots: VisitSlot[]): Date[] {
   const today = nyDate(now).weekday;

@@ -55,6 +55,7 @@ create table requests (
   slot_at timestamptz,
   message text,
   overridden boolean not null default false,
+  redirect_taken_at timestamptz,   -- when the rep tapped the redirect button
   created_at timestamptz not null default now()
 );
 
@@ -77,7 +78,8 @@ create table sign_history (
   created_at timestamptz not null default now()
 );
 
--- Read-only access for the browser (anon key). All writes go through server routes with the service role key.
+-- The anon key ships to every rep's phone, so it may only read the public Door Sign (offices) and drugs.
+-- Everything else is read and written by server routes with the service role key.
 alter table offices enable row level security;
 alter table brand_blocks enable row level security;
 alter table drugs enable row level security;
@@ -88,9 +90,7 @@ alter table sign_history enable row level security;
 
 create policy "public read" on offices for select using (true);
 create policy "public read" on drugs for select using (true);
-create policy "public read" on requests for select using (true);
-create policy "public read" on rep_notes for select using (true);
-create policy "public read" on sign_history for select using (true);
--- brand_blocks and reps: no anon policy (private). Server reads them with the service role key.
+-- requests, rep_notes, sign_history, brand_blocks, reps: no anon policy (private).
 
-alter publication supabase_realtime add table offices, requests, rep_notes;
+-- The desk gets live updates from a data-free broadcast ping (src/lib/ping.ts), not table changes.
+alter publication supabase_realtime add table offices;

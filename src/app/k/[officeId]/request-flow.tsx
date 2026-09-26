@@ -5,13 +5,14 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
-import { redirectLabel } from "@/lib/messages";
+import { redirectDoneText, redirectLabel } from "@/lib/messages";
 import type { DecisionKind, Drug, Purpose, RedirectAction } from "@/lib/types";
 import { formatSlot } from "@/lib/week";
 
 type SavedRep = { id: string | null; name: string; company: string; email: string };
 
 type Answer = {
+  requestId: string;
   decision: DecisionKind;
   slotAt: string | null;
   redirectAction: RedirectAction | null;
@@ -69,12 +70,12 @@ export function RequestFlow(props: FlowProps) {
 
   if (!inBrowser) {
     return (
-      <main className="mx-auto flex w-full max-w-md flex-col gap-4 p-6">
+      <Screen>
         <Skeleton className="h-6 w-40" />
         <Skeleton className="h-10 w-64" />
         <Skeleton className="h-14 w-full" />
         <Skeleton className="h-14 w-full" />
-      </main>
+      </Screen>
     );
   }
   return <Flow {...props} />;
@@ -93,7 +94,7 @@ function Flow({ officeId, officeName, drugs }: FlowProps) {
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [answer, setAnswer] = useState<Answer | null>(null);
-  const [redirectDone, setRedirectDone] = useState(false);
+  const [redirectState, setRedirectState] = useState<"idle" | "sending" | "done">("idle");
 
   function notYou() {
     saveRep(null);
@@ -106,7 +107,7 @@ function Flow({ officeId, officeName, drugs }: FlowProps) {
     setSafetyNotice(false);
     setPurpose("visit");
     setAnswer(null);
-    setRedirectDone(false);
+    setRedirectState("idle");
     setStep("what");
   }
 
@@ -141,10 +142,26 @@ function Flow({ officeId, officeName, drugs }: FlowProps) {
     }
   }
 
+  async function takeRedirect() {
+    if (!answer) return;
+    setRedirectState("sending");
+    setError(null);
+    try {
+      const response = await fetch(`/api/requests/${answer.requestId}/take-redirect`, {
+        method: "POST",
+      });
+      if (!response.ok) throw new Error();
+      setRedirectState("done");
+    } catch {
+      setRedirectState("idle");
+      setError("Couldn't reach the office. Please try again.");
+    }
+  }
+
   if (step === "who") {
     const canContinue = rep.name.trim() !== "" && rep.company.trim() !== "";
     return (
-      <main className="mx-auto flex w-full max-w-md flex-col gap-6 p-6">
+      <Screen>
         <header>
           <p className="text-muted-foreground">{officeName}</p>
           <h1 className="text-3xl font-semibold">Who&apos;s visiting?</h1>
@@ -183,14 +200,14 @@ function Flow({ officeId, officeName, drugs }: FlowProps) {
             Continue
           </Button>
         </form>
-      </main>
+      </Screen>
     );
   }
 
   if (step === "what") {
     const canAsk = (drugId !== null || safetyNotice) && !sending;
     return (
-      <main className="mx-auto flex w-full max-w-md flex-col gap-6 p-6">
+      <Screen>
         <header>
           <p className="text-muted-foreground">{officeName}</p>
           <h1 className="text-3xl font-semibold">What are you bringing?</h1>
@@ -204,12 +221,21 @@ function Flow({ officeId, officeName, drugs }: FlowProps) {
 
         <div className="flex flex-col gap-3">
           {drugs.map((drug) => (
-            <Chip key={drug.id} selected={drugId === drug.id} onClick={() => setDrugId(drug.id)}>
+            <Chip
+              key={drug.id}
+              selected={drugId === drug.id}
+              onClick={() => setDrugId(drug.id)}
+              className="justify-between"
+            >
               <span className="font-semibold">{drug.brand}</span>
               <span className="opacity-80">{drug.area}</span>
             </Chip>
           ))}
-          <Chip selected={safetyNotice} onClick={() => setSafetyNotice(!safetyNotice)}>
+          <Chip
+            selected={safetyNotice}
+            onClick={() => setSafetyNotice(!safetyNotice)}
+            className="justify-start"
+          >
             <span className="font-semibold">Safety notice</span>
           </Chip>
         </div>
@@ -236,7 +262,7 @@ function Flow({ officeId, officeName, drugs }: FlowProps) {
         <Button onClick={ask} disabled={!canAsk} className="h-14 w-full text-lg">
           {sending ? "Checking the sign..." : "Ask the office"}
         </Button>
-      </main>
+      </Screen>
     );
   }
 
@@ -246,36 +272,46 @@ function Flow({ officeId, officeName, drugs }: FlowProps) {
   const hasVisitSlot = answer.decision === "accepted" && answer.slotAt;
 
   return (
-    <main className={`flex min-h-dvh flex-1 flex-col ${style.className}`}>
-      <div className="mx-auto flex w-full max-w-md flex-1 flex-col gap-6 p-6 pt-16">
-        <p className="opacity-80">{officeName}</p>
-        <h1 className="text-5xl font-semibold">{style.title}</h1>
-        {hasVisitSlot && (
-          <div>
-            <p className="text-2xl font-medium">{formatSlot(answer.slotAt!)}</p>
-            <p className="text-xl">5 minutes with the team</p>
-          </div>
-        )}
-        <p className="text-xl">{answer.message}</p>
-
-        {answer.redirectAction &&
-          (redirectDone ? (
-            <p className="text-xl font-medium">Done. Thanks for stopping by.</p>
-          ) : (
-            <Button
-              onClick={() => setRedirectDone(true)}
-              className="h-auto min-h-14 w-full bg-background py-3 text-lg whitespace-normal text-foreground hover:bg-background/90"
-            >
-              {redirectLabel(answer.redirectAction, answer.slotAt)}
-            </Button>
-          ))}
-
-        <div className="mt-auto">
-          <button type="button" onClick={startOver} className="min-h-12 underline">
-            Make another request
-          </button>
+    <Screen className={style.className}>
+      <p className="opacity-80">{officeName}</p>
+      <h1 className="text-5xl font-semibold">{style.title}</h1>
+      {hasVisitSlot && (
+        <div>
+          <p className="text-2xl font-medium">{formatSlot(answer.slotAt!)}</p>
+          <p className="text-xl">5 minutes with the team</p>
         </div>
-      </div>
+      )}
+      <p className="text-xl">{answer.message}</p>
+
+      {answer.redirectAction &&
+        (redirectState === "done" ? (
+          <p className="text-xl font-medium">
+            {redirectDoneText(answer.redirectAction, answer.slotAt)}
+          </p>
+        ) : (
+          <Button
+            onClick={takeRedirect}
+            disabled={redirectState === "sending"}
+            className="h-auto min-h-14 w-full bg-background py-3 text-lg whitespace-normal text-foreground hover:bg-background/90"
+          >
+            {redirectLabel(answer.redirectAction, answer.slotAt)}
+          </Button>
+        ))}
+
+      {error && <p role="alert">{error}</p>}
+
+      <button type="button" onClick={startOver} className="min-h-12 self-start underline">
+        Make another request
+      </button>
+    </Screen>
+  );
+}
+
+// Every screen: content centered both ways, on phones and laptops.
+function Screen({ className = "", children }: { className?: string; children: React.ReactNode }) {
+  return (
+    <main className={`flex min-h-dvh w-full flex-1 items-center justify-center p-6 ${className}`}>
+      <div className="flex w-full max-w-md flex-col gap-6">{children}</div>
     </main>
   );
 }
@@ -309,10 +345,12 @@ function Field(props: {
 function Chip({
   selected,
   onClick,
+  className = "",
   children,
 }: {
   selected: boolean;
   onClick: () => void;
+  className?: string;
   children: React.ReactNode;
 }) {
   return (
@@ -321,7 +359,7 @@ function Chip({
       variant={selected ? "default" : "outline"}
       aria-pressed={selected}
       onClick={onClick}
-      className="h-auto min-h-14 justify-between gap-3 px-4 py-3 text-lg whitespace-normal"
+      className={`h-auto min-h-14 gap-3 px-4 py-3 text-lg whitespace-normal ${className}`}
     >
       {children}
     </Button>
