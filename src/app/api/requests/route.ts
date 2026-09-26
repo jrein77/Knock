@@ -19,6 +19,8 @@ const RequestBody = z.object({
   source: z.enum(["qr", "fit_list"]),
   // Optional note for the office. Shown on the desk; never affects the decision.
   repMessage: z.string().trim().max(280).optional(),
+  // A visit time the rep tapped on the fit list. Missing = the soonest open time.
+  requestedAt: z.string().datetime().optional(),
 });
 
 // A rep asks to visit an office. The decision engine answers from the current Door Sign.
@@ -72,6 +74,7 @@ export async function POST(request: Request) {
     purpose: body.purpose,
     acceptedThisWeek: acceptedResult.count ?? 0,
     now,
+    requestedAt: body.requestedAt ? new Date(body.requestedAt) : null,
   });
   const message = templateMessage(decision, office.name);
 

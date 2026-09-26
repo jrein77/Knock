@@ -152,7 +152,9 @@ export async function loadSignals(
       },
       {
         label: "No open time",
-        count: missed.filter((r) => r.reason_code === "cap_full" || r.reason_code === "no_slots").length,
+        count: missed.filter((r) =>
+          ["cap_full", "no_slots", "time_unavailable"].includes(r.reason_code ?? "")
+        ).length,
         tone: "neutral" as const,
       },
     ];

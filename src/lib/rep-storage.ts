@@ -8,7 +8,7 @@ export type SavedRep = {
   name: string;
   company: string;
   email: string;
-  drugIds?: string[]; // what they carry, picked once on the fit list
+  drugIds?: string[]; // their products, picked once on the fit list
 };
 
 export const EMPTY_REP: SavedRep = { id: null, name: "", company: "", email: "" };

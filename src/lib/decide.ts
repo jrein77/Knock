@@ -12,6 +12,7 @@ export type ReasonCode =
   | "drop_samples"
   | "slot"
   | "cap_full"
+  | "time_unavailable"
   | "no_slots";
 
 export type DecideInput = {
@@ -22,6 +23,7 @@ export type DecideInput = {
   purpose: Purpose;
   acceptedThisWeek: number; // accepted visits with a slot in the next 7 days
   now: Date;
+  requestedAt?: Date | null; // a visit time the rep tapped on the fit list; missing = soonest
 };
 
 export type Decision = {
@@ -98,13 +100,16 @@ export function decide(input: DecideInput): Decision {
     return { decision: "accepted", reasonCode: "drop_samples", slotAt: null, redirectAction: null };
   }
 
-  // 6. Book the soonest visit time in the next 7 days, if the weekly cap has room.
-  //    Visit times are weekly or on a specific date (see VisitSlot).
+  // 6. Book a visit time in the next 7 days, if the weekly cap has room: the time the rep
+  //    tapped on the fit list, or else the soonest one. Visit times are weekly or on a date.
   const weekEnd = new Date(now.getTime() + WEEK_MS);
-  const openings = upcomingWindows(now, office.visit_slots);
-  const thisWeek = openings.filter((opening) => opening.start < weekEnd);
-  // The first opening after this week, to offer instead.
-  const later = upcomingWindows(weekEnd, office.visit_slots)[0];
+  const officeThisWeek = upcomingWindows(now, office.visit_slots).filter(
+    (opening) => opening.start < weekEnd
+  );
+  const picked = input.requestedAt
+    ? officeThisWeek.find((opening) => isSameOpening(opening, input.requestedAt!))
+    : undefined;
+  const thisWeek = input.requestedAt ? (picked ? [picked] : []) : officeThisWeek;
 
   if (thisWeek.length > 0 && acceptedThisWeek < office.weekly_cap) {
     return {
@@ -116,22 +121,35 @@ export function decide(input: DecideInput): Decision {
     };
   }
 
-  // No visit times at all.
-  if (!later) {
+  // No visit this week: full, or the tapped time is gone, or no times at all.
+  // Offer the next opening instead: this week's soonest if the tapped time is gone,
+  // otherwise the first one after this week.
+  const reasonCode: ReasonCode =
+    thisWeek.length > 0 ? "cap_full" : officeThisWeek.length > 0 ? "time_unavailable" : "no_slots";
+  const instead =
+    reasonCode === "time_unavailable"
+      ? officeThisWeek[0]
+      : upcomingWindows(weekEnd, office.visit_slots)[0];
+
+  if (!instead) {
     return {
       decision: "redirected",
-      reasonCode: "no_slots",
+      reasonCode,
       slotAt: null,
       redirectAction: firstOffered(office, ["drop_samples", "leave_materials"]),
     };
   }
-
-  // This week is full, or has no visit times: offer the first opening after it.
   return {
     decision: "redirected",
-    reasonCode: thisWeek.length > 0 ? "cap_full" : "no_slots",
-    slotAt: later.start,
-    slotEnd: later.end,
+    reasonCode,
+    slotAt: instead.start,
+    slotEnd: instead.end,
     redirectAction: firstOffered(office, ["next_slot", "leave_materials"]),
   };
+}
+
+// Is `time` this opening? Its start, or anywhere inside it if it's a window.
+function isSameOpening(opening: { start: Date; end: Date | null }, time: Date): boolean {
+  if (opening.end) return time >= opening.start && time < opening.end;
+  return time.getTime() === opening.start.getTime();
 }

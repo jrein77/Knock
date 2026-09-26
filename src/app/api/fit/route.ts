@@ -2,7 +2,7 @@ import { decide, type Decision } from "@/lib/decide";
 import { createServerClient } from "@/lib/supabase/server";
 import type { DecisionKind, Drug, Office } from "@/lib/types";
 import { milesBetween } from "@/lib/distance";
-import { formatVisit, WEEK_MS } from "@/lib/week";
+import { formatVisit, upcomingWindows, WEEK_MS } from "@/lib/week";
 
 // The rep's fit list: every office, colored by what the decision engine would answer
 // if this rep asked for a visit right now with their best drug for that office.
@@ -112,6 +112,17 @@ export async function GET(request: Request) {
       reason: reasonText(best.decision),
       drugId: best.drug.id,
       drugBrand: best.drug.brand,
+      // For good fits: this week's visit times, for the rep to tap one.
+      times:
+        best.decision.decision === "accepted"
+          ? upcomingWindows(now, office.visit_slots)
+              .filter((opening) => opening.start.getTime() < now.getTime() + WEEK_MS)
+              .slice(0, 6)
+              .map((opening) => ({
+                start: opening.start.toISOString(),
+                end: opening.end?.toISOString() ?? null,
+              }))
+          : [],
       distanceMiles:
         here && office.lat != null && office.lng != null
           ? Math.round(milesBetween(here, { lat: office.lat, lng: office.lng }) * 10) / 10

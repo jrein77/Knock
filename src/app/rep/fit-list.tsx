@@ -27,6 +27,7 @@ type FitOffice = {
   reason: string; // one short line: next visit, or why not
   drugId: string;
   drugBrand: string;
+  times: { start: string; end: string | null }[]; // good fits: this week's visit times to tap
   distanceMiles: number | null; // null without the rep's location
 };
 
@@ -368,7 +369,10 @@ function OfficeRow({
   const [answer, setAnswer] = useState<Answer | null>(null);
   const [redirectState, setRedirectState] = useState<"idle" | "sending" | "done">("idle");
 
-  async function requestVisit() {
+  const [pickedTime, setPickedTime] = useState<{ start: string; end: string | null } | null>(null);
+
+  // `requestedAt`: the visit time the rep picked. Without it, the soonest open time.
+  async function requestVisit(requestedAt?: string) {
     setSending(true);
     setError(null);
     try {
@@ -380,6 +384,7 @@ function OfficeRow({
           repId: rep.id,
           rep: { name: rep.name, company: rep.company, email: rep.email },
           drugId: office.drugId,
+          requestedAt,
           purpose: "visit",
           source: "fit_list",
         }),
@@ -444,10 +449,13 @@ function OfficeRow({
             <span className="text-muted-foreground">Wants </span>
             {office.topics.length > 0 ? office.topics.join(", ") : "no specific topics"}
           </p>
-          <p>
-            <span className="text-muted-foreground">Visits </span>
-            {visitTimes(office.visitSlots)}
-          </p>
+          {/* Good fits list their times as buttons below, so skip the plain list there. */}
+          {office.times.length === 0 && (
+            <p>
+              <span className="text-muted-foreground">Visits </span>
+              {visitTimes(office.visitSlots)}
+            </p>
+          )}
 
           {answer ? (
             <div
@@ -474,8 +482,44 @@ function OfficeRow({
                 ))}
               <LeaveNote requestId={answer.requestId} />
             </div>
+          ) : office.times.length > 0 ? (
+            // Good fit: pick one of the office's times, then confirm. The office only
+            // hears about it once the rep confirms.
+            <div className="flex flex-col gap-2">
+              <p className="font-medium">Pick a time ({office.drugBrand})</p>
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                {office.times.map((time) => {
+                  const picked = pickedTime?.start === time.start;
+                  return (
+                    // Picked = heavy outline, so the solid button below is clearly the one that sends.
+                    <Button
+                      key={time.start}
+                      variant="outline"
+                      aria-pressed={picked}
+                      onClick={() => setPickedTime(picked ? null : time)}
+                      className={`h-auto min-h-12 justify-start px-4 py-2 text-lg whitespace-normal ${
+                        picked ? "border-2 border-foreground bg-muted font-semibold" : ""
+                      }`}
+                    >
+                      {formatVisit(time.start, time.end, true)}
+                    </Button>
+                  );
+                })}
+              </div>
+              <Button
+                onClick={() => pickedTime && requestVisit(pickedTime.start)}
+                disabled={!pickedTime || sending}
+                className="h-12 px-5 text-lg whitespace-normal"
+              >
+                {sending
+                  ? "Asking..."
+                  : pickedTime
+                    ? `Request ${formatVisit(pickedTime.start, pickedTime.end, true)}`
+                    : "Pick a time above"}
+              </Button>
+            </div>
           ) : (
-            <Button onClick={requestVisit} disabled={sending} className="h-12 self-start px-5 text-lg">
+            <Button onClick={() => requestVisit()} disabled={sending} className="h-12 self-start px-5 text-lg">
               {sending ? "Asking..." : `Request a visit (${office.drugBrand})`}
             </Button>
           )}

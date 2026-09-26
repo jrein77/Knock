@@ -77,6 +77,7 @@ const REASON_LABELS: Record<string, string> = {
   slot: "Visit booked",
   cap_full: "Week is full",
   no_slots: "No visit times this week",
+  time_unavailable: "The time the rep picked was gone",
 };
 
 const REDIRECT_TAKEN_LABELS: Record<RedirectAction, string> = {

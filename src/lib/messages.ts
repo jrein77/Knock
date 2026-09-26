@@ -19,6 +19,10 @@ export function templateMessage(decision: Decision, officeName: string): string 
     return `Check in at the front desk at ${officeName} when you arrive. The team is expecting you.`;
   }
 
+  if (reasonCode === "time_unavailable" && slotAt) {
+    return `That time isn't open anymore. The next open visit at ${officeName} is ${formatSlot(slotAt)}.`;
+  }
+
   switch (redirectAction) {
     case "virtual":
       return `${officeName} isn't taking in-person visits on this topic right now. A short virtual meeting works instead.`;
