@@ -3,7 +3,7 @@ import { createServerClient } from "@/lib/supabase/server";
 import type { Office } from "@/lib/types";
 import { nyDayStart, nyToday, shiftDate } from "@/lib/week";
 
-// The parts of a request the inbox needs to book or turn away the rep (and undo it).
+// The parts of a request the inbox needs to book the rep or say not this time (and undo it).
 const INBOX_REQUEST_COLUMNS =
   "id, rep_company, purpose, decision, slot_at, redirect_action, overridden, overridden_at, original_decision, original_reason_code, rep_canceled_at, drugs(brand)";
 
@@ -77,7 +77,7 @@ export async function GET(request: Request) {
   }
 
   // One inbox for everything reps wrote to the desk, newest first.
-  // Each item carries the request it's about, so the desk can book or turn away the rep from there.
+  // Each item carries the request it's about, so the desk can book the rep or say not this time from there.
   const notes = (notesResult.data ?? []).map((note) => {
     const request = note.requests as unknown as InboxRequest | null;
     return {

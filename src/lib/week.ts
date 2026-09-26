@@ -136,21 +136,15 @@ export function upcomingWindows(
       continue;
     }
 
-    // Every week, on its day.
-    const daysAhead = (DAYS.indexOf(slot.day) - DAYS.indexOf(today) + 7) % 7;
+    // Every week, on its day: this week's, or next week's if it has already passed
+    // (a window counts as passed once it closes). Weeks the office skipped are passed over.
+    let daysAhead = (DAYS.indexOf(slot.day) - DAYS.indexOf(today) + 7) % 7;
+    if (nyInstant(now, daysAhead, slot.end ?? slot.time) <= now) daysAhead += 7;
+    while (slot.skip?.includes(shiftDate(nyToday(now), daysAhead))) daysAhead += 7;
+
     const start = nyInstant(now, daysAhead, slot.time);
     const end = slot.end ? nyInstant(now, daysAhead, slot.end) : null;
-
-    if (start > now) {
-      windows.push({ start, end }); // still ahead today, or later this week
-    } else if (end && end > now) {
-      windows.push({ start: now, end }); // inside the window right now: the visit is now
-    } else {
-      windows.push({
-        start: nyInstant(now, daysAhead + 7, slot.time), // already passed today: next week's
-        end: slot.end ? nyInstant(now, daysAhead + 7, slot.end) : null,
-      });
-    }
+    windows.push({ start: start > now ? start : now, end }); // inside the window now: the visit is now
   }
 
   return windows.sort((a, b) => a.start.getTime() - b.start.getTime());
@@ -159,6 +153,34 @@ export function upcomingWindows(
 // Just the start times of upcomingWindows.
 export function upcomingSlots(now: Date, slots: VisitSlot[]): Date[] {
   return upcomingWindows(now, slots).map((window) => window.start);
+}
+
+// Every weekly slot's dates in the next `days` days that haven't passed yet, soonest first,
+// including skipped ones (so the office can see and un-skip them).
+export function weeklyOccurrences(
+  slots: VisitSlot[],
+  now: Date,
+  days = 14
+): { slot: VisitSlot; date: string; skipped: boolean }[] {
+  const today = nyToday(now);
+  const occurrences: { slot: VisitSlot; date: string; skipped: boolean; start: Date }[] = [];
+  for (const slot of slots) {
+    if (slot.date) continue;
+    for (let ahead = 0; ahead < days; ahead++) {
+      const date = shiftDate(today, ahead);
+      if (weekdayOf(date) !== slot.day) continue;
+      if (nyInstantOn(date, slot.end ?? slot.time) <= now) continue; // already over
+      occurrences.push({
+        slot,
+        date,
+        skipped: slot.skip?.includes(date) ?? false,
+        start: nyInstantOn(date, slot.time),
+      });
+    }
+  }
+  return occurrences
+    .sort((a, b) => a.start.getTime() - b.start.getTime())
+    .map(({ slot, date, skipped }) => ({ slot, date, skipped }));
 }
 
 // "15:00" -> "3:00 PM"
@@ -170,7 +192,7 @@ export function formatClock(time: string): string {
 }
 
 // A slot's times: "12:30 PM", or "12:00-1:00 PM" for a window.
-export function formatSlotTimes(slot: VisitSlot): string {
+export function formatSlotTimes(slot: Pick<VisitSlot, "time" | "end">): string {
   if (!slot.end) return formatClock(slot.time);
   const start = formatClock(slot.time);
   const end = formatClock(slot.end);

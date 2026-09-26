@@ -438,8 +438,8 @@ function inboxChoices(request: InboxRequest | null): { label: string; action: In
     ];
   }
   return [
-    // Already declined: keeping them out changes nothing, so no second email.
-    { label: "Keep them out", action: request.decision === "declined" ? "done" : "decline" },
+    // Already declined: "Not this time" changes nothing, so no second email.
+    { label: "Not this time", action: request.decision === "declined" ? "done" : "decline" },
     { label: "Book a visit", action: "approve" },
   ];
 }
@@ -480,7 +480,7 @@ function Inbox({ items, onChange }: { items: InboxItem[]; onChange: () => void }
       )
   );
 
-  // Close out a message with a real outcome: book the rep, keep them out, or just mark it done.
+  // Close out a message with a real outcome: book the rep, tell them not this time, or just mark it done.
   // Booking or keeping out is the same override as the board's buttons, so the rep gets the same email.
   async function resolve(item: InboxItem, action: InboxAction) {
     const request = item.request;
@@ -505,7 +505,7 @@ function Inbox({ items, onChange }: { items: InboxItem[]; onChange: () => void }
         : action === "decline"
           ? request?.decision === "accepted"
             ? `Canceled the visit for ${who}`
-            : `Kept ${who} out`
+            : `Told ${who} not this time`
           : "Marked done";
     toast(done, {
       duration: 10_000,

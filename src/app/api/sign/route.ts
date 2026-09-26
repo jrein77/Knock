@@ -68,6 +68,7 @@ const SignChange = z
         time: z.string().regex(/^\d{2}:\d{2}$/),
         end: z.string().regex(/^\d{2}:\d{2}$/).optional(),
         date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+        skip: z.array(z.string().regex(/^\d{4}-\d{2}-\d{2}$/)).optional(),
       })
     ),
     weekly_cap: z.number().int().min(0).max(10),
