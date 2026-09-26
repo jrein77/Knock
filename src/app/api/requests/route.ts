@@ -112,6 +112,7 @@ export async function POST(request: Request) {
 }
 
 // Reuse the rep saved on this phone if it still exists, otherwise create one.
+// A reused rep gets whatever they typed this time, so a changed email is the one we use.
 async function findOrCreateRep(
   db: ReturnType<typeof createServerClient>,
   repId: string | null,
@@ -119,8 +120,13 @@ async function findOrCreateRep(
   drugId: string | null
 ): Promise<string | null> {
   if (repId) {
-    const existing = await db.from("reps").select("id").eq("id", repId).maybeSingle();
-    if (existing.data) return existing.data.id;
+    const updated = await db
+      .from("reps")
+      .update({ name: rep.name, company: rep.company, email: rep.email || null })
+      .eq("id", repId)
+      .select("id")
+      .maybeSingle();
+    if (updated.data) return updated.data.id;
   }
 
   const created = await db
