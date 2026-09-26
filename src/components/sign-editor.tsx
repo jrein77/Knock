@@ -1,8 +1,9 @@
 "use client";
 
+import { EyeIcon, LockIcon } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
-import { DoorSign, type SignLine } from "@/components/door-sign";
+import type { SignLine } from "@/components/door-sign";
 import { CapEditor, ChoiceEditor, SlotsEditor } from "@/components/sign-line-editors";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -44,7 +45,7 @@ async function postJson(url: string, body: unknown): Promise<{ historyId: string
 }
 
 // How the office answers "do we take rep visits, and which ones?". Used on /sign and in the desk's
-// "Rep visits" view. Plain questions on top, then the Door Sign those answers make, view only.
+// "Rep visits" view. Plain questions in two sections: what reps see, and what only the office sees.
 // `showName` is off on the desk, where the page header already shows the office name.
 export function SignEditor({ officeId, showName = true }: { officeId: string; showName?: boolean }) {
   const [data, setData] = useState<SignData | null>(null);
@@ -232,55 +233,67 @@ export function SignEditor({ officeId, showName = true }: { officeId: string; sh
   }
 
   return (
-    <div className="flex flex-col gap-8">
-      <section className="flex flex-col gap-3">
-        <h2 className="text-xl font-semibold">Are you taking rep visits?</h2>
-        <StatusPicker
-          current={office.effective_status}
-          todayOnly={todayOnly}
-          usual={office.status}
-          onPick={setStatus}
-        />
+    <div className="flex flex-col gap-6">
+      {showName && <h1 className="text-2xl font-semibold">{office.name}</h1>}
+
+      {/* Public: everything here is on the Door Sign that reps check before they come. */}
+      <section className="flex flex-col rounded-3xl bg-card px-5 py-5 shadow-lg ring-1 ring-foreground/10">
+        <SectionHeading icon={<EyeIcon className="size-5" />} title="Reps see this">
+          Your Door Sign. Reps check it before they come, and Knock uses it to answer every request.
+        </SectionHeading>
+        <div className="flex flex-col gap-3 pt-5 pb-3">
+          <h3 className="font-medium">Are you taking rep visits?</h3>
+          <StatusPicker
+            current={office.effective_status}
+            todayOnly={todayOnly}
+            usual={office.status}
+            onPick={setStatus}
+          />
+        </div>
+        <div className="flex flex-col divide-y border-t">
+          {question(
+            "topics",
+            "Which topics do you want to hear about?",
+            office.topics.length > 0 ? office.topics.join(", ") : "No specific topics"
+          )}
+          {question(
+            "slots",
+            "When can reps visit?",
+            office.visit_slots.length > 0
+              ? sortSlots(office.visit_slots).map(formatSlotLine).join(" · ")
+              : "No visit times"
+          )}
+          {question(
+            "redirects",
+            "What can reps do instead of a visit?",
+            office.redirect_options.length > 0
+              ? office.redirect_options.map((option) => REDIRECT_OPTION_LABELS[option]).join(", ")
+              : "Nothing else right now"
+          )}
+        </div>
       </section>
 
-      <section className="flex flex-col divide-y">
-        {question(
-          "topics",
-          "Which topics do you want to hear about?",
-          office.topics.length > 0 ? office.topics.join(", ") : "No specific topics"
-        )}
-        {question(
-          "slots",
-          "When can reps visit?",
-          office.visit_slots.length > 0
-            ? sortSlots(office.visit_slots).map(formatSlotLine).join(" · ")
-            : "No visit times"
-        )}
-        {question(
-          "redirects",
-          "What can reps do instead of a visit?",
-          office.redirect_options.length > 0
-            ? office.redirect_options.map((option) => REDIRECT_OPTION_LABELS[option]).join(", ")
-            : "Nothing else right now"
-        )}
-      </section>
-
-      <section className="flex flex-col divide-y rounded-2xl bg-muted/60 px-4">
-        <p className="pt-4 pb-1 text-base font-medium text-muted-foreground">Private, reps never see these</p>
-        {question(
-          "cap",
-          "How many visits a week, at most?",
-          office.weekly_cap === 1 ? "1 visit" : `${office.weekly_cap} visits`
-        )}
-        {question(
-          "blocks",
-          "Any companies you're not taking visits from?",
-          brandBlocks.length > 0 ? brandBlocks.join(", ") : "None"
-        )}
+      {/* Private: Knock uses these to decide, but never shows them to a rep. */}
+      <section className="flex flex-col rounded-3xl bg-muted/60 px-5 py-5">
+        <SectionHeading icon={<LockIcon className="size-5" />} title="Only your office sees this">
+          Knock uses these to answer requests. Reps never see them or the reason behind a no.
+        </SectionHeading>
+        <div className="flex flex-col divide-y pt-2">
+          {question(
+            "cap",
+            "How many visits a week, at most?",
+            office.weekly_cap === 1 ? "1 visit" : `${office.weekly_cap} visits`
+          )}
+          {question(
+            "blocks",
+            "Any companies you're not taking visits from?",
+            brandBlocks.length > 0 ? brandBlocks.join(", ") : "None"
+          )}
+        </div>
       </section>
 
       {lastChange && (
-        <p className="-mt-4 flex flex-wrap items-center gap-x-2 text-muted-foreground">
+        <p className="flex flex-wrap items-center gap-x-2 text-muted-foreground">
           <span>
             {formatWhen(lastChange.created_at, new Date())}: {lastChange.summary}.
           </span>
@@ -293,26 +306,27 @@ export function SignEditor({ officeId, showName = true }: { officeId: string; sh
           </Button>
         </p>
       )}
+    </div>
+  );
+}
 
-      <section className="flex flex-col gap-3">
-        <h2 className="text-xl font-semibold">This is what reps see</h2>
-        <p className="-mt-2 text-muted-foreground">
-          Your answers above make this sign. Reps check it before they come, and Knock uses it to
-          answer every request.
-        </p>
-        <DoorSign
-          showName={showName}
-          name={office.name}
-          neighborhood={office.neighborhood}
-          specialty={office.specialty}
-          status={office.effective_status}
-          todayOnly={todayOnly}
-          topics={office.topics}
-          topicsNote={office.topics_note}
-          visitSlots={office.visit_slots}
-          redirectOptions={office.redirect_options}
-        />
-      </section>
+// "Reps see this" / "Only your office sees this": says who can see a section, in words and an icon.
+function SectionHeading({
+  icon,
+  title,
+  children,
+}: {
+  icon: React.ReactNode;
+  title: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="flex flex-col gap-1">
+      <h2 className="flex items-center gap-2 text-xl font-semibold">
+        {icon}
+        {title}
+      </h2>
+      <p className="text-base text-muted-foreground">{children}</p>
     </div>
   );
 }
