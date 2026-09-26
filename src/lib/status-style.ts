@@ -22,3 +22,10 @@ export const REDIRECT_OPTION_LABELS: Record<RedirectAction, string> = {
   next_slot: "Next open slot",
   leave_materials: "Leave materials",
 };
+
+// The big title on a rep's answer.
+export const ANSWER_TITLE: Record<DecisionKind, string> = {
+  accepted: "You're in",
+  redirected: "Not a visit this time",
+  declined: "Not now",
+};

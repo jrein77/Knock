@@ -7,10 +7,10 @@ import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { redirectDoneText, redirectLabel } from "@/lib/messages";
+import { EMPTY_REP, loadRep, saveRep, type SavedRep } from "@/lib/rep-storage";
+import { ANSWER_TITLE, DECISION_STYLE } from "@/lib/status-style";
 import type { DecisionKind, Drug, Purpose, RedirectAction } from "@/lib/types";
 import { formatSlot } from "@/lib/week";
-
-type SavedRep = { id: string | null; name: string; company: string; email: string };
 
 type Answer = {
   requestId: string;
@@ -22,45 +22,13 @@ type Answer = {
 
 type Step = "who" | "what" | "answer";
 
-const REP_KEY = "knock.rep";
-
-function loadRep(): SavedRep | null {
-  try {
-    const saved = localStorage.getItem(REP_KEY);
-    return saved ? (JSON.parse(saved) as SavedRep) : null;
-  } catch {
-    return null;
-  }
-}
-
-function saveRep(rep: SavedRep | null) {
-  try {
-    if (rep) localStorage.setItem(REP_KEY, JSON.stringify(rep));
-    else localStorage.removeItem(REP_KEY);
-  } catch {
-    // Private browsing: the rep just types their name again next time.
-  }
-}
-
 const PURPOSES: { value: Purpose; label: string }[] = [
   { value: "visit", label: "Visit" },
   { value: "drop_samples", label: "Drop samples" },
   { value: "lunch", label: "Lunch" },
 ];
 
-// Answer screen look, by decision. Status colors only.
-const ANSWER_STYLES: Record<DecisionKind, { title: string; className: string }> = {
-  accepted: { title: "You're in", className: "bg-status-open text-status-open-foreground" },
-  redirected: {
-    title: "Not a visit this time",
-    className: "bg-status-topics text-status-topics-foreground",
-  },
-  declined: { title: "Not now", className: "bg-status-closed text-status-closed-foreground" },
-};
-
 type FlowProps = { officeId: string; officeName: string; drugs: Drug[] };
-
-const EMPTY_REP: SavedRep = { id: null, name: "", company: "", email: "" };
 
 const noSubscribe = () => () => {};
 
@@ -286,7 +254,10 @@ function Flow({ officeId, officeName, drugs }: FlowProps) {
 
   // step === "answer"
   if (!answer) return null;
-  const style = ANSWER_STYLES[answer.decision];
+  const style = {
+    title: ANSWER_TITLE[answer.decision],
+    className: DECISION_STYLE[answer.decision].className,
+  };
   const hasVisitSlot = answer.decision === "accepted" && answer.slotAt;
 
   return (
