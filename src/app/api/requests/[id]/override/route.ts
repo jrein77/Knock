@@ -10,6 +10,9 @@ const Snapshot = z.object({
   slot_at: z.string().nullable(),
   redirect_action: z.string().nullable(),
   overridden: z.boolean(),
+  overridden_at: z.string().nullable(),
+  original_decision: z.string().nullable(),
+  original_reason_code: z.string().nullable(),
 });
 
 const OverrideBody = z.discriminatedUnion("action", [
@@ -30,7 +33,9 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
 
   const existing = await db
     .from("requests")
-    .select("office_id, purpose, redirect_action, offices(visit_slots)")
+    .select(
+      "office_id, purpose, decision, reason_code, redirect_action, overridden, original_decision, original_reason_code, offices(visit_slots)"
+    )
     .eq("id", id)
     .maybeSingle();
   if (!existing.data) {
@@ -39,6 +44,15 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   const request_ = existing.data;
 
   let changes: z.infer<typeof Snapshot>;
+
+  // What the sign decided, kept from the first override so the desk can always see it.
+  const original = request_.overridden
+    ? {
+        original_decision: request_.original_decision,
+        original_reason_code: request_.original_reason_code,
+      }
+    : { original_decision: request_.decision, original_reason_code: request_.reason_code };
+  const overriddenAt = new Date().toISOString();
 
   if (body.action === "restore") {
     changes = body.previous;
@@ -52,6 +66,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       slot_at: nextSlot?.toISOString() ?? null,
       redirect_action: null,
       overridden: true,
+      overridden_at: overriddenAt,
+      ...original,
     };
   } else {
     // Safety notices always pass. Nobody can decline them.
@@ -63,6 +79,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       slot_at: null,
       redirect_action: "leave_materials",
       overridden: true,
+      overridden_at: overriddenAt,
+      ...original,
     };
   }
 

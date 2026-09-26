@@ -103,7 +103,11 @@ function Line({
   renderEditor,
 }: DoorSignProps & { line: SignLine; label: string; children: React.ReactNode }) {
   if (editing === line && renderEditor) {
-    return <div className="rounded-xl bg-background p-3 ring-1 ring-foreground/15">{renderEditor(line)}</div>;
+    return (
+      <div data-open-editor className="rounded-xl bg-background p-3 ring-1 ring-foreground/15">
+        {renderEditor(line)}
+      </div>
+    );
   }
 
   const content = (

@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
-import { DoorSign } from "@/components/door-sign";
+import { DrugTiles } from "@/components/drug-tiles";
 import { LeaveNote } from "@/components/leave-note";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -11,8 +11,8 @@ import { redirectDoneText, redirectLabel } from "@/lib/messages";
 import { EMPTY_REP, loadRep, saveRep, type SavedRep } from "@/lib/rep-storage";
 import { ANSWER_TITLE, DECISION_STYLE, STATUS_STYLE } from "@/lib/status-style";
 import { supabase } from "@/lib/supabase/browser";
-import type { DecisionKind, Drug, RedirectAction, Status, VisitSlot } from "@/lib/types";
-import { formatVisit } from "@/lib/week";
+import type { DecisionKind, Drug, RedirectAction, VisitSlot } from "@/lib/types";
+import { currentSlots, formatSlotLine, formatVisit, sortSlots } from "@/lib/week";
 
 type Fit = "green" | "amber" | "grey";
 
@@ -21,11 +21,8 @@ type FitOffice = {
   name: string;
   neighborhood: string | null;
   specialty: string | null;
-  status: Status;
-  todayOnly: boolean;
   topics: string[];
   visitSlots: VisitSlot[];
-  redirectOptions: RedirectAction[];
   fit: Fit;
   reason: string;
   drugId: string;
@@ -83,7 +80,7 @@ function FitListInBrowser({ drugs }: { drugs: Drug[] }) {
   return <Offices rep={rep} setRep={setRep} drugs={drugs} onChange={() => setEditing(true)} />;
 }
 
-// Picked once: who you are and what you carry.
+// Picked once, on two short screens: who you are, then what you carry.
 function RepSetup({
   drugs,
   initial,
@@ -94,8 +91,10 @@ function RepSetup({
   onDone: (rep: SavedRep) => void;
 }) {
   const [rep, setRep] = useState(initial);
+  const [screen, setScreen] = useState<"who" | "drugs">(
+    initial.name && initial.company ? "drugs" : "who"
+  );
   const drugIds = rep.drugIds ?? [];
-  const canSave = rep.name.trim() !== "" && rep.company.trim() !== "" && drugIds.length > 0;
 
   function toggleDrug(id: string) {
     setRep({
@@ -104,51 +103,56 @@ function RepSetup({
     });
   }
 
+  if (screen === "who") {
+    const canContinue = rep.name.trim() !== "" && rep.company.trim() !== "";
+    return (
+      <Screen>
+        <header>
+          <h1 className="text-3xl font-semibold">Know before you go</h1>
+          <p className="text-muted-foreground">See which offices want what you carry.</p>
+        </header>
+        <form
+          className="flex flex-col gap-5"
+          onSubmit={(event) => {
+            event.preventDefault();
+            if (canContinue) setScreen("drugs");
+          }}
+        >
+          <Field id="name" label="Your name" value={rep.name} onChange={(name) => setRep({ ...rep, name })} />
+          <Field
+            id="company"
+            label="Company"
+            value={rep.company}
+            onChange={(company) => setRep({ ...rep, company })}
+          />
+          <Field
+            id="email"
+            label="Email"
+            type="email"
+            value={rep.email}
+            onChange={(email) => setRep({ ...rep, email })}
+          />
+          <Button type="submit" disabled={!canContinue} className="h-14 w-full text-lg">
+            Continue
+          </Button>
+        </form>
+      </Screen>
+    );
+  }
+
   return (
     <Screen>
       <header>
-        <h1 className="text-3xl font-semibold">Know before you go</h1>
-        <p className="text-muted-foreground">See which offices want what you carry.</p>
+        <h1 className="text-3xl font-semibold">What do you carry?</h1>
+        <p className="text-muted-foreground">
+          {rep.name}, {rep.company}.{" "}
+          <button type="button" onClick={() => setScreen("who")} className="min-h-12 underline">
+            Change
+          </button>
+        </p>
       </header>
-
-      <div className="flex flex-col gap-5">
-        <Field id="name" label="Your name" value={rep.name} onChange={(name) => setRep({ ...rep, name })} />
-        <Field
-          id="company"
-          label="Company"
-          value={rep.company}
-          onChange={(company) => setRep({ ...rep, company })}
-        />
-        <Field
-          id="email"
-          label="Email"
-          type="email"
-          value={rep.email}
-          onChange={(email) => setRep({ ...rep, email })}
-        />
-      </div>
-
-      <div className="flex flex-col gap-3">
-        <p className="text-lg font-medium">What do you carry?</p>
-        {drugs.map((drug) => {
-          const selected = drugIds.includes(drug.id);
-          return (
-            <Button
-              key={drug.id}
-              type="button"
-              variant={selected ? "default" : "outline"}
-              aria-pressed={selected}
-              onClick={() => toggleDrug(drug.id)}
-              className="h-auto min-h-14 justify-between gap-3 px-4 py-3 text-lg whitespace-normal"
-            >
-              <span className="font-semibold">{drug.brand}</span>
-              <span className="opacity-80">{drug.area}</span>
-            </Button>
-          );
-        })}
-      </div>
-
-      <Button onClick={() => onDone(rep)} disabled={!canSave} className="h-14 w-full text-lg">
+      <DrugTiles drugs={drugs} selected={drugIds} onToggle={toggleDrug} />
+      <Button onClick={() => onDone(rep)} disabled={drugIds.length === 0} className="h-14 w-full text-lg">
         Show my offices
       </Button>
     </Screen>
@@ -312,20 +316,25 @@ function OfficeCard({
 
   return (
     <article className="flex flex-col gap-3">
-      <p className={`rounded-2xl px-5 py-3 text-lg font-medium ${FIT_STYLE[office.fit]}`}>
-        {office.reason}
-      </p>
-
-      <DoorSign
-        name={office.name}
-        neighborhood={office.neighborhood}
-        specialty={office.specialty}
-        status={office.status}
-        todayOnly={office.todayOnly}
-        topics={office.topics}
-        visitSlots={office.visitSlots}
-        redirectOptions={office.redirectOptions}
-      />
+      <div className="overflow-hidden rounded-2xl bg-card shadow-sm ring-1 ring-foreground/10">
+        <p className={`px-5 py-3 text-lg font-medium ${FIT_STYLE[office.fit]}`}>{office.reason}</p>
+        <div className="flex flex-col gap-2 px-5 py-4">
+          <div>
+            <h2 className="text-xl font-semibold">{office.name}</h2>
+            <p className="text-muted-foreground">
+              {[office.specialty, office.neighborhood].filter(Boolean).join(" · ")}
+            </p>
+          </div>
+          <p>
+            <span className="text-muted-foreground">Wants </span>
+            {office.topics.length > 0 ? office.topics.join(", ") : "no specific topics"}
+          </p>
+          <p>
+            <span className="text-muted-foreground">Visits </span>
+            {visitTimes(office.visitSlots)}
+          </p>
+        </div>
+      </div>
 
       {answer ? (
         <div
@@ -363,6 +372,11 @@ function OfficeCard({
       {error && <p role="alert">{error}</p>}
     </article>
   );
+}
+
+function visitTimes(slots: VisitSlot[]): string {
+  const current = sortSlots(currentSlots(slots, new Date()));
+  return current.length > 0 ? current.map(formatSlotLine).join(" · ") : "none posted";
 }
 
 // Every screen: content centered, phone-width column.

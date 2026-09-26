@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 560 190">
+  <text x="4" y="170" fill="#1c1917" font-family="Geist, 'Helvetica Neue', Arial, sans-serif" font-size="160" font-weight="800" letter-spacing="-7">Knock</text>
+  <g stroke="#1c1917" stroke-width="16" stroke-linecap="round">
+    <line x1="477" y1="55" x2="486" y2="12"/>
+    <line x1="495" y1="65" x2="528" y2="36"/>
+    <line x1="504" y1="83" x2="547" y2="77"/>
+  </g>
+</svg>

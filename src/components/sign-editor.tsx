@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { DoorSign, type SignLine } from "@/components/door-sign";
 import { CapEditor, ChoiceEditor, SlotsEditor } from "@/components/sign-line-editors";
@@ -63,6 +63,18 @@ export function SignEditor({ officeId }: { officeId: string }) {
 
   // Reload whenever anything on this office changes, e.g. an edit from the desk.
   useOfficePings(officeId, load);
+
+  // Clicking anywhere outside an open editor (or the status choice) closes it, like Cancel.
+  useEffect(() => {
+    if (!editing && !pendingStatus) return;
+    function closeOnOutsideClick(event: PointerEvent) {
+      const target = event.target as Element;
+      if (!target.closest("[data-open-editor]")) setEditing(null);
+      if (!target.closest("[data-status-picker]")) setPendingStatus(null);
+    }
+    document.addEventListener("pointerdown", closeOnOutsideClick);
+    return () => document.removeEventListener("pointerdown", closeOnOutsideClick);
+  }, [editing, pendingStatus]);
 
   // Undo, never confirm: every change shows a toast with Undo for 10 seconds.
   function showUndo(message: string, historyId: string | null) {
@@ -146,6 +158,7 @@ export function SignEditor({ officeId }: { officeId: string }) {
               label: area,
             }))}
             selected={office.topics}
+            allowNew={{ label: "Add a topic" }}
             onSave={(topics) =>
               save({ topics }, topics.length ? `Wants: ${topics.join(", ")}` : "Wants no specific topics")
             }
@@ -199,23 +212,7 @@ export function SignEditor({ officeId }: { officeId: string }) {
 
   return (
     <div className="flex flex-col gap-6">
-      <DoorSign
-        name={office.name}
-        neighborhood={office.neighborhood}
-        specialty={office.specialty}
-        status={office.effective_status}
-        todayOnly={todayOnly}
-        topics={office.topics}
-        topicsNote={office.topics_note}
-        visitSlots={office.visit_slots}
-        redirectOptions={office.redirect_options}
-        privateInfo={{ weeklyCap: office.weekly_cap, brandBlocks }}
-        editing={editing}
-        onEdit={setEditing}
-        renderEditor={renderEditor}
-      />
-
-      <section className="flex flex-col gap-3">
+      <section data-status-picker className="flex flex-col gap-3">
         <p className="font-medium">Change your status</p>
         <ToggleGroup
           value={[pendingStatus ?? office.effective_status]}
@@ -261,6 +258,23 @@ export function SignEditor({ officeId }: { officeId: string }) {
           </div>
         )}
       </section>
+
+      <p className="-mb-3 text-center text-muted-foreground">This is what reps see.</p>
+      <DoorSign
+        name={office.name}
+        neighborhood={office.neighborhood}
+        specialty={office.specialty}
+        status={office.effective_status}
+        todayOnly={todayOnly}
+        topics={office.topics}
+        topicsNote={office.topics_note}
+        visitSlots={office.visit_slots}
+        redirectOptions={office.redirect_options}
+        privateInfo={{ weeklyCap: office.weekly_cap, brandBlocks }}
+        editing={editing}
+        onEdit={setEditing}
+        renderEditor={renderEditor}
+      />
 
       {lastChange && (
         <p className="flex flex-wrap items-center gap-x-2 text-muted-foreground">

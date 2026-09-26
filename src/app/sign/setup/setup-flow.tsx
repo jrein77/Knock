@@ -197,6 +197,7 @@ export function SetupFlow({ officeId }: { officeId: string }) {
                 }))}
                 value={draft.topics}
                 onChange={(topics) => update({ topics })}
+                allowNew={{ label: "Add a topic" }}
               />
               <div className="flex flex-col gap-2">
                 <Label htmlFor="topics-note" className="text-lg">

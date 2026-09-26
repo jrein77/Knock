@@ -1,7 +1,7 @@
-import { decide, effectiveStatus, type Decision } from "@/lib/decide";
+import { decide, type Decision } from "@/lib/decide";
 import { createServerClient } from "@/lib/supabase/server";
 import type { DecisionKind, Drug, Office } from "@/lib/types";
-import { formatVisit, nyToday, WEEK_MS } from "@/lib/week";
+import { formatVisit, WEEK_MS } from "@/lib/week";
 
 // The rep's fit list: every office, colored by what the decision engine would answer
 // if this rep asked for a visit right now with their best drug for that office.
@@ -98,11 +98,8 @@ export async function GET(request: Request) {
       name: office.name,
       neighborhood: office.neighborhood,
       specialty: office.specialty,
-      status: effectiveStatus(office, now),
-      todayOnly: office.today_status !== null && office.today_status_date === nyToday(now),
       topics: office.topics,
       visitSlots: office.visit_slots,
-      redirectOptions: office.redirect_options,
       fit: FIT_BY_DECISION[best.decision.decision],
       reason: reasonText(best.decision, best.drug),
       drugId: best.drug.id,

@@ -41,32 +41,79 @@ export function Chip({
 }
 
 // Pick any number of options: topics, redirect options, blocked companies.
-// The result keeps the options' order, not the tap order.
+// The result keeps the options' order, not the tap order. With `allowNew`, the office
+// can type in an option that isn't listed (e.g. a new topic).
 export function ChoicePicker<T extends string>({
   options,
   value,
   onChange,
+  allowNew,
 }: {
   options: { value: T; label: string }[];
   value: T[];
   onChange: (value: T[]) => void;
+  allowNew?: { label: string };
 }) {
+  const [newOption, setNewOption] = useState("");
+  const newId = useId();
+
+  // Anything already chosen but not in the list (e.g. a topic added earlier) still shows.
+  const all = [
+    ...options,
+    ...value
+      .filter((v) => !options.some((o) => o.value === v))
+      .map((v) => ({ value: v, label: v })),
+  ];
+
   function toggle(option: T) {
     const next = value.includes(option) ? value.filter((v) => v !== option) : [...value, option];
-    onChange(options.map((o) => o.value).filter((v) => next.includes(v)));
+    onChange(all.map((o) => o.value).filter((v) => next.includes(v)));
+  }
+
+  function addNew() {
+    const typed = newOption.trim() as T;
+    if (typed && !value.includes(typed)) onChange([...value, typed]);
+    setNewOption("");
   }
 
   return (
-    <div className="flex flex-wrap gap-2">
-      {options.map((option) => (
-        <Chip
-          key={option.value}
-          selected={value.includes(option.value)}
-          onClick={() => toggle(option.value)}
+    <div className="flex flex-col gap-3">
+      <div className="flex flex-wrap gap-2">
+        {all.map((option) => (
+          <Chip
+            key={option.value}
+            selected={value.includes(option.value)}
+            onClick={() => toggle(option.value)}
+          >
+            {option.label}
+          </Chip>
+        ))}
+      </div>
+      {allowNew && (
+        <form
+          className="flex flex-wrap items-end gap-2"
+          onSubmit={(event) => {
+            event.preventDefault();
+            addNew();
+          }}
         >
-          {option.label}
-        </Chip>
-      ))}
+          <div className="flex flex-col gap-2">
+            <Label htmlFor={newId} className="text-lg">
+              {allowNew.label}
+            </Label>
+            <Input
+              id={newId}
+              value={newOption}
+              maxLength={60}
+              onChange={(event) => setNewOption(event.target.value)}
+              className="h-12 w-56 text-lg md:text-lg"
+            />
+          </div>
+          <Button type="submit" variant="outline" disabled={newOption.trim() === ""} className="h-12 px-5 text-lg">
+            Add
+          </Button>
+        </form>
+      )}
     </div>
   );
 }
@@ -266,18 +313,20 @@ export function ChoiceEditor<T extends string>({
   selected,
   onSave,
   onCancel,
+  allowNew,
 }: {
   title: string;
   options: { value: T; label: string }[];
   selected: T[];
   onSave: (selected: T[]) => void;
   onCancel: () => void;
+  allowNew?: { label: string };
 }) {
   const [draft, setDraft] = useState<T[]>(selected);
   return (
     <div className="flex flex-col gap-3">
       <p className="font-medium">{title}</p>
-      <ChoicePicker options={options} value={draft} onChange={setDraft} />
+      <ChoicePicker options={options} value={draft} onChange={setDraft} allowNew={allowNew} />
       <SaveCancel onSave={() => onSave(draft)} onCancel={onCancel} />
     </div>
   );

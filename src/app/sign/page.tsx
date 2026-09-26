@@ -7,7 +7,6 @@ export default function SignPage() {
   return (
     <main className="flex min-h-dvh w-full flex-1 items-center justify-center p-6">
       <div className="flex w-full max-w-xl flex-col gap-4">
-        <p className="text-center text-muted-foreground">This is what reps see.</p>
         <SignEditor officeId={DEMO_OFFICE_ID} />
         <Link href="/sign/setup" className="flex min-h-12 items-center justify-center text-lg underline">
           Set up again

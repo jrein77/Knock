@@ -15,6 +15,7 @@ import {
   DrawerTitle,
 } from "@/components/ui/drawer";
 import { SignEditor } from "@/components/sign-editor";
+import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { DECISION_STYLE, STATUS_STYLE } from "@/lib/status-style";
@@ -33,24 +34,32 @@ type DeskRequest = {
   redirect_action: RedirectAction | null;
   slot_at: string | null;
   overridden: boolean;
+  overridden_at: string | null;
+  original_decision: DecisionKind | null; // what the sign said before the desk overruled it
+  original_reason_code: string | null;
   redirect_taken_at: string | null;
   rep_message: string | null;
   created_at: string;
   drugs: { brand: string } | null;
 };
 
-type DeskNote = {
+// Something a rep wrote to the desk: a "we got it wrong" note, or a message sent with a request.
+type InboxItem = {
+  kind: "note" | "message";
   id: string;
-  rep_name: string | null;
   body: string;
-  created_at: string;
-  requests: { rep_company: string | null; decision: DecisionKind; drugs: { brand: string } | null } | null;
+  repName: string | null;
+  repCompany: string | null;
+  drug: string | null;
+  decision: DecisionKind | null;
+  handled: boolean;
+  createdAt: string;
 };
 
 type DeskData = {
   office: Office & { effective_status: Status };
   requests: DeskRequest[];
-  notes: DeskNote[];
+  inbox: InboxItem[];
 };
 
 // The desk sees why. Reps never do.
@@ -76,7 +85,16 @@ type OverrideBody =
   | { action: "approve" | "decline" }
   | {
       action: "restore";
-      previous: Pick<DeskRequest, "decision" | "slot_at" | "redirect_action" | "overridden">;
+      previous: Pick<
+        DeskRequest,
+        | "decision"
+        | "slot_at"
+        | "redirect_action"
+        | "overridden"
+        | "overridden_at"
+        | "original_decision"
+        | "original_reason_code"
+      >;
     };
 
 async function postOverride(requestId: string, body: OverrideBody): Promise<boolean> {
@@ -112,6 +130,9 @@ export function LobbyBoard({ officeId }: { officeId: string }) {
       slot_at: request.slot_at,
       redirect_action: request.redirect_action,
       overridden: request.overridden,
+      overridden_at: request.overridden_at,
+      original_decision: request.original_decision,
+      original_reason_code: request.original_reason_code,
     };
     if (!(await postOverride(request.id, { action }))) {
       toast.error("Couldn't save that. Please try again.");
@@ -156,7 +177,7 @@ export function LobbyBoard({ officeId }: { officeId: string }) {
     );
   }
 
-  const { office, requests, notes } = data;
+  const { office, requests, inbox } = data;
   const status = STATUS_STYLE[office.effective_status];
 
   return (
@@ -166,7 +187,7 @@ export function LobbyBoard({ officeId }: { officeId: string }) {
           <h1 className="text-3xl font-semibold">{office.name}</h1>
           <Badge className={`h-auto px-4 py-1.5 text-lg ${status.className}`}>{status.label}</Badge>
         </div>
-        <NotesChip notes={notes} />
+        <Inbox items={inbox} onChange={load} />
       </header>
 
       {/* Two views only: Today and Our Sign. */}
@@ -226,36 +247,129 @@ export function LobbyBoard({ officeId }: { officeId: string }) {
   );
 }
 
-// Rep notes: a quiet chip, never an alert. Opens a drawer with every note, newest first.
-function NotesChip({ notes }: { notes: DeskNote[] }) {
+const INBOX_KIND_LABELS: Record<InboxItem["kind"], string> = {
+  note: "Thinks the sign got it wrong",
+  message: "Sent with a visit request",
+};
+
+async function postHandled(item: InboxItem, handled: boolean): Promise<boolean> {
+  const response = await fetch("/api/inbox", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ kind: item.kind, id: item.id, handled }),
+  });
+  return response.ok;
+}
+
+// Everything reps wrote to the desk, in one place: a quiet chip, never an alert.
+// Search it, and resolve things so the "New" list stays short.
+function Inbox({ items, onChange }: { items: InboxItem[]; onChange: () => void }) {
   const [open, setOpen] = useState(false);
+  const [view, setView] = useState<"new" | "resolved">("new");
+  const [search, setSearch] = useState("");
+
+  const newItems = items.filter((item) => !item.handled);
+  const resolvedItems = items.filter((item) => item.handled);
+  const query = search.trim().toLowerCase();
+  const shown = (view === "new" ? newItems : resolvedItems).filter(
+    (item) =>
+      query === "" ||
+      [item.body, item.repName, item.repCompany, item.drug].some((field) =>
+        field?.toLowerCase().includes(query)
+      )
+  );
+
+  async function setHandled(item: InboxItem, handled: boolean) {
+    if (!(await postHandled(item, handled))) {
+      toast.error("Couldn't save that. Please try again.");
+      return;
+    }
+    onChange();
+    if (handled) {
+      toast("Resolved", {
+        duration: 10_000,
+        action: {
+          label: "Undo",
+          onClick: async () => {
+            await postHandled(item, false);
+            onChange();
+          },
+        },
+      });
+    }
+  }
 
   return (
     <>
       <Button variant="outline" onClick={() => setOpen(true)} className="h-12 px-4 text-lg">
-        Notes ({notes.length})
+        Messages ({newItems.length} new)
       </Button>
       <Drawer open={open} onOpenChange={setOpen}>
         <DrawerContent>
           <div className="mx-auto flex w-full max-w-2xl flex-col gap-4 overflow-y-auto p-6 text-lg">
             <DrawerHeader className="p-0">
-              <DrawerTitle className="text-2xl">Notes from reps</DrawerTitle>
+              <DrawerTitle className="text-2xl">Messages from reps</DrawerTitle>
               <DrawerDescription className="text-lg">
-                Reps who think the sign got it wrong.
+                Notes from reps who think the sign got it wrong, and messages sent with requests.
               </DrawerDescription>
             </DrawerHeader>
-            {notes.length === 0 && <p className="text-muted-foreground">No notes yet.</p>}
+
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                variant={view === "new" ? "default" : "outline"}
+                aria-pressed={view === "new"}
+                onClick={() => setView("new")}
+                className="h-12 px-4 text-lg"
+              >
+                New ({newItems.length})
+              </Button>
+              <Button
+                variant={view === "resolved" ? "default" : "outline"}
+                aria-pressed={view === "resolved"}
+                onClick={() => setView("resolved")}
+                className="h-12 px-4 text-lg"
+              >
+                Resolved ({resolvedItems.length})
+              </Button>
+              <Input
+                aria-label="Search messages"
+                placeholder="Search by rep, company, drug, or words"
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                className="h-12 min-w-56 flex-1 text-lg md:text-lg"
+              />
+            </div>
+
+            {shown.length === 0 && (
+              <p className="py-6 text-center text-muted-foreground">
+                {query ? "Nothing matches that search." : view === "new" ? "All caught up." : "Nothing resolved yet."}
+              </p>
+            )}
             <ul className="flex flex-col gap-3">
-              {notes.map((note) => (
-                <li key={note.id} className="rounded-xl bg-muted px-4 py-3">
-                  <p>{note.body}</p>
-                  <p className="text-base text-muted-foreground">
-                    {note.rep_name}
-                    {note.requests?.rep_company && `, ${note.requests.rep_company}`}
-                    {note.requests?.drugs && ` · ${note.requests.drugs.brand}`}
-                    {note.requests && ` · ${DECISION_STYLE[note.requests.decision].label}`}
-                    {` · ${formatWhen(note.created_at, new Date())}`}
-                  </p>
+              {shown.map((item) => (
+                <li key={`${item.kind}-${item.id}`} className="flex flex-col gap-2 rounded-xl bg-muted px-4 py-3">
+                  <p className="text-base font-medium text-muted-foreground">{INBOX_KIND_LABELS[item.kind]}</p>
+                  <p>{item.body}</p>
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <p className="text-base text-muted-foreground">
+                      {[
+                        item.repName,
+                        item.repCompany,
+                        item.drug,
+                        item.decision && DECISION_STYLE[item.decision].label,
+                        formatWhen(item.createdAt, new Date()),
+                      ]
+                        .filter(Boolean)
+                        .join(" · ")}
+                    </p>
+                    <Button
+                      variant="outline"
+                      onClick={() => setHandled(item, !item.handled)}
+                      className="h-12 px-4 text-lg"
+                    >
+                      {item.handled ? "Reopen" : "Resolve"}
+                    </Button>
+                  </div>
                 </li>
               ))}
             </ul>
@@ -348,6 +462,7 @@ function QuietRow({ request }: { request: DeskRequest }) {
       <span>
         · {DECISION_STYLE[request.decision].label}
         {request.slot_at && request.decision === "accepted" && ` for ${formatSlot(request.slot_at)}`}
+        {request.overridden && " (overridden by the desk)"}
       </span>
     </div>
   );
@@ -359,16 +474,35 @@ function DecisionBadge({ decision }: { decision: DecisionKind }) {
 }
 
 function DecisionDetail({ request }: { request: DeskRequest }) {
-  const reason = request.overridden
-    ? "Changed by the front desk"
-    : REASON_LABELS[request.reason_code ?? ""];
   return (
     <div className="flex flex-col gap-1">
-      {reason && <p>{reason}</p>}
+      {request.overridden ? (
+        <OverrideNote request={request} />
+      ) : (
+        REASON_LABELS[request.reason_code ?? ""] && <p>{REASON_LABELS[request.reason_code ?? ""]}</p>
+      )}
       {request.slot_at && <p className="font-medium">{formatSlot(request.slot_at)}</p>}
       {request.redirect_taken_at && request.redirect_action && (
         <p className="font-medium">{REDIRECT_TAKEN_LABELS[request.redirect_action]}</p>
       )}
+    </div>
+  );
+}
+
+// The record of an override: when the desk overruled the sign, and what the sign had said.
+function OverrideNote({ request }: { request: DeskRequest }) {
+  const signSaid = request.original_decision
+    ? [DECISION_STYLE[request.original_decision].label, REASON_LABELS[request.original_reason_code ?? ""]]
+        .filter(Boolean)
+        .join(", ")
+    : null;
+  return (
+    <div className="rounded-xl border px-4 py-2">
+      <p className="font-medium">
+        Overridden by the front desk
+        {request.overridden_at && ` at ${formatTime(request.overridden_at)}`}
+      </p>
+      {signSaid && <p className="text-muted-foreground">The sign said: {signSaid}</p>}
     </div>
   );
 }

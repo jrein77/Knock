@@ -56,6 +56,10 @@ create table requests (
   message text,                    -- answer text shown to the rep (template)
   rep_message text check (char_length(rep_message) <= 280), -- optional message from the rep to the office
   overridden boolean not null default false,
+  overridden_at timestamptz,       -- when the desk overruled the sign
+  original_decision text,          -- what the sign said before the override
+  original_reason_code text,
+  message_handled boolean not null default false, -- desk has dealt with rep_message
   redirect_taken_at timestamptz,   -- when the rep tapped the redirect button
   created_at timestamptz not null default now()
 );

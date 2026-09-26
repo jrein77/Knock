@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useSyncExternalStore } from "react";
+import { DrugTiles } from "@/components/drug-tiles";
 import { LeaveNote } from "@/components/leave-note";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -193,18 +194,12 @@ function Flow({ officeId, officeName, drugs }: FlowProps) {
           </p>
         </header>
 
-        <div className="flex flex-col gap-3">
-          {drugs.map((drug) => (
-            <Chip
-              key={drug.id}
-              selected={drugId === drug.id}
-              onClick={() => setDrugId(drug.id)}
-              className="justify-between"
-            >
-              <span className="font-semibold">{drug.brand}</span>
-              <span className="opacity-80">{drug.area}</span>
-            </Chip>
-          ))}
+        <div className="flex flex-col gap-2">
+          <DrugTiles
+            drugs={drugs}
+            selected={drugId ? [drugId] : []}
+            onToggle={(id) => setDrugId(drugId === id ? null : id)}
+          />
           <Chip
             selected={safetyNotice}
             onClick={() => setSafetyNotice(!safetyNotice)}
