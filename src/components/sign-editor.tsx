@@ -10,7 +10,7 @@ import type { LastChange, SignChange } from "@/lib/sign";
 import { REDIRECT_OPTION_LABELS, STATUS_STYLE } from "@/lib/status-style";
 import type { Office, RedirectAction, Status } from "@/lib/types";
 import { useOfficePings } from "@/lib/use-office-pings";
-import { formatWhen, nyToday } from "@/lib/week";
+import { formatSlotLine, formatWhen, nyToday, sortSlots } from "@/lib/week";
 
 type SignData = {
   office: Office & { effective_status: Status };
@@ -20,11 +20,15 @@ type SignData = {
   companies: string[];
 };
 
-const STATUSES: { value: Status; label: string }[] = [
-  { value: "open", label: "Open" },
-  { value: "topics", label: "Topics only" },
-  { value: "closed", label: "Closed" },
+// Each status says what it does to reps, so nobody has to guess.
+const STATUSES: { value: Status; label: string; effect: string }[] = [
+  { value: "open", label: "Open", effect: "Any rep can ask for a visit." },
+  { value: "topics", label: "Topics only", effect: "Only reps who carry a topic you want." },
+  { value: "closed", label: "Closed", effect: "No visits. Reps are offered other options." },
 ];
+
+// Everything the office answers besides the status. One question each.
+type Question = Exclude<SignLine, "status">;
 
 async function postJson(url: string, body: unknown): Promise<{ historyId: string | null } | null> {
   try {
@@ -39,12 +43,13 @@ async function postJson(url: string, body: unknown): Promise<{ historyId: string
   }
 }
 
-// The office's editable Door Sign. Used on /sign and in the desk's "Our Sign" view.
+// How the office answers "do we take rep visits, and which ones?". Used on /sign and in the desk's
+// "Rep visits" view. Plain questions on top, then the Door Sign those answers make, view only.
 // `showName` is off on the desk, where the page header already shows the office name.
 export function SignEditor({ officeId, showName = true }: { officeId: string; showName?: boolean }) {
   const [data, setData] = useState<SignData | null>(null);
   const [loadFailed, setLoadFailed] = useState(false);
-  const [editing, setEditing] = useState<SignLine | null>(null);
+  const [editing, setEditing] = useState<Question | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -139,11 +144,9 @@ export function SignEditor({ officeId, showName = true }: { officeId: string; sh
   const todayOnly =
     office.today_status !== null && office.today_status_date === nyToday(new Date());
 
-  function renderEditor(line: SignLine) {
+  function renderEditor(question: Question) {
     const close = () => setEditing(null);
-    switch (line) {
-      case "status":
-        return <StatusEditor current={office.effective_status} onPick={setStatus} onCancel={close} />;
+    switch (question) {
       case "topics":
         return (
           <ChoiceEditor
@@ -205,30 +208,79 @@ export function SignEditor({ officeId, showName = true }: { officeId: string; sh
     }
   }
 
+  // One line per question: the question, today's answer, and a Change button.
+  // Tapping Change opens that question's editor in the same spot.
+  function question(key: Question, text: string, answer: string) {
+    if (editing === key) {
+      return (
+        <div data-open-editor className="my-2 rounded-xl bg-background p-4 ring-1 ring-foreground/15">
+          {renderEditor(key)}
+        </div>
+      );
+    }
+    return (
+      <div className="flex items-center justify-between gap-4 py-3">
+        <div className="flex min-w-0 flex-col">
+          <span className="font-medium">{text}</span>
+          <span className="text-muted-foreground">{answer}</span>
+        </div>
+        <Button variant="outline" onClick={() => setEditing(key)} className="h-12 shrink-0 px-4 text-lg">
+          Change
+        </Button>
+      </div>
+    );
+  }
+
   return (
-    <div className="flex flex-col gap-6">
-      <p className="-mb-3 text-center text-muted-foreground">
-        This is what reps see. Tap any part to change it.
-      </p>
-      <DoorSign
-        showName={showName}
-        name={office.name}
-        neighborhood={office.neighborhood}
-        specialty={office.specialty}
-        status={office.effective_status}
-        todayOnly={todayOnly}
-        topics={office.topics}
-        topicsNote={office.topics_note}
-        visitSlots={office.visit_slots}
-        redirectOptions={office.redirect_options}
-        privateInfo={{ weeklyCap: office.weekly_cap, brandBlocks }}
-        editing={editing}
-        onEdit={setEditing}
-        renderEditor={renderEditor}
-      />
+    <div className="flex flex-col gap-8">
+      <section className="flex flex-col gap-3">
+        <h2 className="text-xl font-semibold">Are you taking rep visits?</h2>
+        <StatusPicker
+          current={office.effective_status}
+          todayOnly={todayOnly}
+          usual={office.status}
+          onPick={setStatus}
+        />
+      </section>
+
+      <section className="flex flex-col divide-y">
+        {question(
+          "topics",
+          "Which topics do you want to hear about?",
+          office.topics.length > 0 ? office.topics.join(", ") : "No specific topics"
+        )}
+        {question(
+          "slots",
+          "When can reps visit?",
+          office.visit_slots.length > 0
+            ? sortSlots(office.visit_slots).map(formatSlotLine).join(" · ")
+            : "No visit times"
+        )}
+        {question(
+          "redirects",
+          "What can reps do instead of a visit?",
+          office.redirect_options.length > 0
+            ? office.redirect_options.map((option) => REDIRECT_OPTION_LABELS[option]).join(", ")
+            : "Nothing else right now"
+        )}
+      </section>
+
+      <section className="flex flex-col divide-y rounded-2xl bg-muted/60 px-4">
+        <p className="pt-4 pb-1 text-base font-medium text-muted-foreground">Private, reps never see these</p>
+        {question(
+          "cap",
+          "How many visits a week, at most?",
+          office.weekly_cap === 1 ? "1 visit" : `${office.weekly_cap} visits`
+        )}
+        {question(
+          "blocks",
+          "Any companies you're not taking visits from?",
+          brandBlocks.length > 0 ? brandBlocks.join(", ") : "None"
+        )}
+      </section>
 
       {lastChange && (
-        <p className="flex flex-wrap items-center gap-x-2 text-muted-foreground">
+        <p className="-mt-4 flex flex-wrap items-center gap-x-2 text-muted-foreground">
           <span>
             {formatWhen(lastChange.created_at, new Date())}: {lastChange.summary}.
           </span>
@@ -241,27 +293,73 @@ export function SignEditor({ officeId, showName = true }: { officeId: string; sh
           </Button>
         </p>
       )}
+
+      <section className="flex flex-col gap-3">
+        <h2 className="text-xl font-semibold">This is what reps see</h2>
+        <p className="-mt-2 text-muted-foreground">
+          Your answers above make this sign. Reps check it before they come, and Knock uses it to
+          answer every request.
+        </p>
+        <DoorSign
+          showName={showName}
+          name={office.name}
+          neighborhood={office.neighborhood}
+          specialty={office.specialty}
+          status={office.effective_status}
+          todayOnly={todayOnly}
+          topics={office.topics}
+          topicsNote={office.topics_note}
+          visitSlots={office.visit_slots}
+          redirectOptions={office.redirect_options}
+        />
+      </section>
     </div>
   );
 }
 
-// Opens in place of the sign's status band. One tap on a status changes it (with Undo).
+// The three statuses as big buttons, each saying what it does to reps. One tap changes it (with Undo).
 // "Just for today" is optional: the status switches back on its own tomorrow,
 // e.g. closed because the doctor is out.
-function StatusEditor({
+function StatusPicker({
   current,
+  todayOnly,
+  usual,
   onPick,
-  onCancel,
 }: {
   current: Status;
+  todayOnly: boolean;
+  usual: Status; // what it goes back to after a just-today change
   onPick: (status: Status, justToday: boolean) => void;
-  onCancel: () => void;
 }) {
   const [justToday, setJustToday] = useState(false);
 
   return (
     <div className="flex flex-col gap-3">
-      <p className="font-medium">Change your status</p>
+      <div className="flex flex-col gap-2">
+        {STATUSES.map((status) => {
+          const isNow = current === status.value;
+          // Tapping the current status does nothing, unless "Just for today" changed:
+          // then a just-today Closed can become Closed from now on, and the other way round.
+          const unchanged = isNow && todayOnly === justToday;
+          return (
+            <Button
+              key={status.value}
+              variant="outline"
+              aria-pressed={isNow}
+              onClick={() => !unchanged && onPick(status.value, justToday)}
+              className={`h-auto min-h-16 flex-col items-start gap-0 px-4 py-3 text-left whitespace-normal ${
+                isNow ? STATUS_STYLE[status.value].className : ""
+              }`}
+            >
+              <span className="text-xl font-semibold">
+                {status.label}
+                {isNow && (todayOnly ? " (now, just today)" : " (now)")}
+              </span>
+              <span className="text-base font-normal">{status.effect}</span>
+            </Button>
+          );
+        })}
+      </div>
       <label className="flex min-h-12 cursor-pointer items-center gap-3 text-lg">
         <input
           type="checkbox"
@@ -271,22 +369,10 @@ function StatusEditor({
         />
         Just for today (switches back tomorrow)
       </label>
-      <div className="grid grid-cols-3 gap-2">
-        {STATUSES.map((status) => {
-          const isCurrent = current === status.value;
-          return (
-            <Button
-              key={status.value}
-              variant="outline"
-              aria-pressed={isCurrent}
-              onClick={() => (isCurrent ? onCancel() : onPick(status.value, justToday))}
-              className={`h-14 text-lg whitespace-normal ${isCurrent ? STATUS_STYLE[status.value].className : ""}`}
-            >
-              {status.label}
-            </Button>
-          );
-        })}
-      </div>
+      <p className="text-muted-foreground">
+        {todayOnly && `Back to ${STATUSES.find((s) => s.value === usual)!.label} tomorrow. `}
+        Safety notices always get through.
+      </p>
     </div>
   );
 }

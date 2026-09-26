@@ -363,7 +363,7 @@ export function CapEditor({
   const [draft, setDraft] = useState(cap);
   return (
     <div className="flex flex-col gap-3">
-      <p className="font-medium">Most visits in a week</p>
+      <p className="font-medium">How many visits a week, at most?</p>
       <CapStepper value={draft} onChange={setDraft} />
       <SaveCancel onSave={() => onSave(draft)} onCancel={onCancel} />
     </div>

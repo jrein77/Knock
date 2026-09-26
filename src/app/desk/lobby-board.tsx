@@ -53,10 +53,24 @@ type InboxItem = {
   repName: string | null;
   repCompany: string | null;
   drug: string | null;
-  decision: DecisionKind | null;
   handled: boolean;
   createdAt: string;
+  request: InboxRequest | null; // the request it's about (a note may have none)
 };
+
+type InboxRequest = Pick<
+  DeskRequest,
+  | "id"
+  | "purpose"
+  | "decision"
+  | "slot_at"
+  | "redirect_action"
+  | "overridden"
+  | "overridden_at"
+  | "original_decision"
+  | "original_reason_code"
+  | "rep_canceled_at"
+>;
 
 type DeskData = {
   office: Office & { effective_status: Status };
@@ -104,6 +118,19 @@ type OverrideBody =
       >;
     };
 
+// What an override changes, saved so Undo can put it back.
+function snapshotOf(request: InboxRequest) {
+  return {
+    decision: request.decision,
+    slot_at: request.slot_at,
+    redirect_action: request.redirect_action,
+    overridden: request.overridden,
+    overridden_at: request.overridden_at,
+    original_decision: request.original_decision,
+    original_reason_code: request.original_reason_code,
+  };
+}
+
 async function postOverride(requestId: string, body: OverrideBody): Promise<boolean> {
   const response = await fetch(`/api/requests/${requestId}/override`, {
     method: "POST",
@@ -139,15 +166,7 @@ export function LobbyBoard({ officeId }: { officeId: string }) {
   useOfficePings(officeId, load);
 
   async function override(request: DeskRequest, action: "approve" | "decline") {
-    const previous = {
-      decision: request.decision,
-      slot_at: request.slot_at,
-      redirect_action: request.redirect_action,
-      overridden: request.overridden,
-      overridden_at: request.overridden_at,
-      original_decision: request.original_decision,
-      original_reason_code: request.original_reason_code,
-    };
+    const previous = snapshotOf(request);
     if (!(await postOverride(request.id, { action }))) {
       toast.error("Couldn't save that. Please try again.");
       return;
@@ -225,7 +244,7 @@ export function LobbyBoard({ officeId }: { officeId: string }) {
         <Inbox items={inbox} onChange={load} />
       </header>
 
-      {/* Two views only: Requests and Our Sign. */}
+      {/* Two views only: Requests and Rep visits (the answers that make the office's Door Sign). */}
       <ToggleGroup
         value={[view]}
         onValueChange={(value) => {
@@ -238,7 +257,7 @@ export function LobbyBoard({ officeId }: { officeId: string }) {
           Requests
         </ToggleGroupItem>
         <ToggleGroupItem value="sign" className="h-12 w-full text-lg">
-          Our Sign
+          Rep visits
         </ToggleGroupItem>
       </ToggleGroup>
 
@@ -405,6 +424,35 @@ const INBOX_KIND_LABELS: Record<InboxItem["kind"], string> = {
   message: "Sent with a visit request",
 };
 
+type InboxAction = "approve" | "decline" | "done";
+
+// What the desk can do about a message, given where the rep's request stands now.
+function inboxChoices(request: InboxRequest | null): { label: string; action: InboxAction }[] {
+  if (!request || request.rep_canceled_at) return [{ label: "Mark done", action: "done" }];
+  if (request.decision === "accepted") {
+    // Safety notices always pass, so there's nothing to cancel.
+    if (request.purpose === "safety_notice") return [{ label: "Mark done", action: "done" }];
+    return [
+      { label: "Cancel the visit", action: "decline" },
+      { label: "Keep the visit", action: "done" },
+    ];
+  }
+  return [
+    // Already declined: keeping them out changes nothing, so no second email.
+    { label: "Keep them out", action: request.decision === "declined" ? "done" : "decline" },
+    { label: "Book a visit", action: "approve" },
+  ];
+}
+
+// "Booked: Tue Sep 29, 12:30 PM", "Not booked (Redirected)", or "Canceled by the rep".
+function whereTheyStand(request: InboxRequest): string {
+  if (request.rep_canceled_at) return "Canceled by the rep";
+  if (request.decision === "accepted") {
+    return request.slot_at ? `Booked: ${formatSlot(request.slot_at)}` : "Accepted";
+  }
+  return `Not booked (${DECISION_STYLE[request.decision].label})`;
+}
+
 async function postHandled(item: InboxItem, handled: boolean): Promise<boolean> {
   const response = await fetch("/api/inbox", {
     method: "POST",
@@ -415,7 +463,7 @@ async function postHandled(item: InboxItem, handled: boolean): Promise<boolean> 
 }
 
 // Everything reps wrote to the desk, in one place: a quiet chip, never an alert.
-// Search it, and resolve things so the "New" list stays short.
+// Search it, and close each one out with an outcome so the "New" list stays short.
 function Inbox({ items, onChange }: { items: InboxItem[]; onChange: () => void }) {
   const [open, setOpen] = useState(false);
   const [view, setView] = useState<"new" | "resolved">("new");
@@ -432,24 +480,54 @@ function Inbox({ items, onChange }: { items: InboxItem[]; onChange: () => void }
       )
   );
 
-  async function setHandled(item: InboxItem, handled: boolean) {
-    if (!(await postHandled(item, handled))) {
+  // Close out a message with a real outcome: book the rep, keep them out, or just mark it done.
+  // Booking or keeping out is the same override as the board's buttons, so the rep gets the same email.
+  async function resolve(item: InboxItem, action: InboxAction) {
+    const request = item.request;
+    const previous = request && snapshotOf(request);
+    if (action !== "done" && request) {
+      if (!(await postOverride(request.id, { action }))) {
+        toast.error("Couldn't save that. Please try again.");
+        return;
+      }
+    }
+    if (!(await postHandled(item, true))) {
+      toast.error("Couldn't save that. Please try again.");
+      onChange();
+      return;
+    }
+    onChange();
+
+    const who = item.repName ?? "this rep";
+    const done =
+      action === "approve"
+        ? `Booked a visit for ${who}`
+        : action === "decline"
+          ? request?.decision === "accepted"
+            ? `Canceled the visit for ${who}`
+            : `Kept ${who} out`
+          : "Marked done";
+    toast(done, {
+      duration: 10_000,
+      action: {
+        label: "Undo",
+        onClick: async () => {
+          if (action !== "done" && request && previous) {
+            await postOverride(request.id, { action: "restore", previous });
+          }
+          await postHandled(item, false);
+          onChange();
+        },
+      },
+    });
+  }
+
+  async function reopen(item: InboxItem) {
+    if (!(await postHandled(item, false))) {
       toast.error("Couldn't save that. Please try again.");
       return;
     }
     onChange();
-    if (handled) {
-      toast("Resolved", {
-        duration: 10_000,
-        action: {
-          label: "Undo",
-          onClick: async () => {
-            await postHandled(item, false);
-            onChange();
-          },
-        },
-      });
-    }
   }
 
   return (
@@ -522,25 +600,29 @@ function Inbox({ items, onChange }: { items: InboxItem[]; onChange: () => void }
                   <p className="text-base font-medium text-muted-foreground">{INBOX_KIND_LABELS[item.kind]}</p>
                   <p>{item.body}</p>
                   <p className="text-base text-muted-foreground">
-                    {[
-                      item.repName,
-                      item.repCompany,
-                      item.drug,
-                      item.decision && DECISION_STYLE[item.decision].label,
-                      formatWhen(item.createdAt, new Date()),
-                    ]
+                    {[item.repName, item.repCompany, item.drug, formatWhen(item.createdAt, new Date())]
                       .filter(Boolean)
                       .join(" · ")}
                   </p>
+                  {item.request && <p className="font-medium">{whereTheyStand(item.request)}</p>}
                   {/* Always its own row, bottom right, so it's in the same place on every message. */}
-                  <div className="flex justify-end">
-                    <Button
-                      variant="outline"
-                      onClick={() => setHandled(item, !item.handled)}
-                      className="h-12 px-4 text-lg"
-                    >
-                      {item.handled ? "Reopen" : "Resolve"}
-                    </Button>
+                  <div className="flex flex-wrap justify-end gap-2">
+                    {item.handled ? (
+                      <Button variant="outline" onClick={() => reopen(item)} className="h-12 px-4 text-lg">
+                        Reopen
+                      </Button>
+                    ) : (
+                      inboxChoices(item.request).map((choice) => (
+                        <Button
+                          key={choice.label}
+                          variant={choice.action === "approve" ? "default" : "outline"}
+                          onClick={() => resolve(item, choice.action)}
+                          className="h-12 px-4 text-lg"
+                        >
+                          {choice.label}
+                        </Button>
+                      ))
+                    )}
                   </div>
                 </li>
               ))}
