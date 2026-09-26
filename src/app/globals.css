@@ -143,3 +143,73 @@
     @apply font-sans;
   }
 }
+/* Talk mode: the question being asked gets a soft moving rainbow ring, the way other AI tools
+   show that the assistant is working. The only color here besides the status colors. */
+:root {
+  --ai-1: oklch(0.72 0.14 265);
+  --ai-2: oklch(0.72 0.15 310);
+  --ai-3: oklch(0.76 0.13 0);
+  --ai-4: oklch(0.83 0.12 70);
+  --ai-5: oklch(0.8 0.11 170);
+}
+
+@property --ai-angle {
+  syntax: "<angle>";
+  initial-value: 0deg;
+  inherits: false;
+}
+
+@keyframes ai-spin {
+  to {
+    --ai-angle: 360deg;
+  }
+}
+
+@keyframes ai-pulse {
+  50% {
+    transform: scale(1.15);
+    opacity: 0.8;
+  }
+}
+
+/* A card with the rainbow as its border, plus a faint glow of the same colors behind it. */
+.ai-ring {
+  position: relative;
+  isolation: isolate;
+  border: 2px solid transparent;
+  background:
+    linear-gradient(var(--card), var(--card)) padding-box,
+    conic-gradient(
+        from var(--ai-angle),
+        var(--ai-1),
+        var(--ai-2),
+        var(--ai-3),
+        var(--ai-4),
+        var(--ai-5),
+        var(--ai-1)
+      )
+      border-box;
+  animation: ai-spin 6s linear infinite;
+}
+.ai-ring::before {
+  content: "";
+  position: absolute;
+  inset: -4px;
+  z-index: -1;
+  border-radius: inherit;
+  background: inherit;
+  filter: blur(14px);
+  opacity: 0.35;
+}
+
+/* The Knock icon next to the answer box pulses while the voice is talking or listening. */
+.voice-mark[data-busy="true"] {
+  animation: ai-pulse 1.4s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ai-ring,
+  .voice-mark[data-busy="true"] {
+    animation: none;
+  }
+}

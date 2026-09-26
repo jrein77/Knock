@@ -4,12 +4,12 @@ import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { describeAnswer, VOICE_QUESTIONS, type VoiceAnswer, type VoiceField } from "@/lib/voice-questions";
+import { VOICE_QUESTIONS, VOICE_REPLIES, type VoiceAnswer, type VoiceField } from "@/lib/voice-questions";
 
-// Talk mode: asks the office each question out loud, listens, and fills in that one field.
-// The browser does the speaking and listening (speechSynthesis and SpeechRecognition);
-// /api/sign/parse turns what it heard into the field. What it hears shows in a box that
-// can be fixed or typed into, so it also works without a microphone.
+// Talk mode for one question: asks it out loud, listens, and turns the answer into that field.
+// Grok's voice reads the question (/api/voice/speak), falling back to the browser's own voice.
+// The browser listens (SpeechRecognition), and /api/sign/parse reads the answer.
+// What it hears shows in a box that can be fixed or typed into, so it works without a microphone.
 
 // The browser's speech-to-text (Chrome, Edge, Safari). Just the parts used here.
 type Recognition = {
@@ -29,38 +29,50 @@ function makeRecognition(): Recognition | null {
   return Speech ? new Speech() : null;
 }
 
+// The browser's voice, only if Grok's voice can't play. Prefers the more natural-sounding ones.
+function browserSay(words: string, done: () => void) {
+  if (!window.speechSynthesis) return done();
+  const utterance = new SpeechSynthesisUtterance(words);
+  const voices = window.speechSynthesis.getVoices().filter((voice) => voice.lang.startsWith("en"));
+  utterance.voice =
+    voices.find((voice) => /natural|google us english|samantha|ava/i.test(voice.name)) ?? voices[0] ?? null;
+  utterance.lang = "en-US";
+  utterance.onend = done;
+  utterance.onerror = done;
+  window.speechSynthesis.cancel();
+  window.speechSynthesis.speak(utterance);
+}
+
 type Phase = "speaking" | "listening" | "reading" | "waiting";
 
 // After this many answers it couldn't use, it stops re-asking and waits for a tap.
 const MAX_TRIES = 2;
 
-export function VoiceInterview<F extends VoiceField>(props: {
-  fields: F[];
-  onAnswer: (field: F, answer: VoiceAnswer[F]) => void;
-  onDone: () => void;
-  hideQuestion?: boolean; // setup already shows the question as the step's heading
+export function VoiceAnswerBox<F extends VoiceField>(props: {
+  field: F;
+  onAnswer: (answer: VoiceAnswer[F]) => void;
 }) {
-  const [index, setIndex] = useState(0);
+  const { field } = props;
   const [phase, setPhase] = useState<Phase>("speaking");
   const [text, setText] = useState("");
   const [message, setMessage] = useState<string | null>(null);
   const [canListen, setCanListen] = useState(true);
 
   const recognition = useRef<Recognition | null>(null);
+  const audio = useRef<HTMLAudioElement | null>(null);
   const heard = useRef("");
   const tries = useRef(0);
-  // Bumped whenever the question changes or the box closes, so late speech callbacks are ignored.
+  // Bumped whenever this box stops, so late speech callbacks are ignored.
   const turn = useRef(0);
-
-  const field = props.fields[index];
 
   function stopEverything() {
     turn.current += 1;
+    audio.current?.pause();
     window.speechSynthesis?.cancel();
     recognition.current?.stop();
   }
 
-  // Say something, then call `then` (unless the question moved on in the meantime).
+  // Say one of Knock's fixed lines, then call `then` (unless this box stopped in the meantime).
   function speak(words: string, then: () => void) {
     const myTurn = turn.current;
     let finished = false;
@@ -69,19 +81,18 @@ export function VoiceInterview<F extends VoiceField>(props: {
       finished = true;
       then();
     };
-    if (!window.speechSynthesis) return done();
-    window.speechSynthesis.cancel();
-    const utterance = new SpeechSynthesisUtterance(words);
-    utterance.lang = "en-US";
-    utterance.onend = done;
-    utterance.onerror = done;
-    // Some browsers never say they finished. Move on anyway after about as long as it takes to say.
-    setTimeout(done, 1500 + words.split(" ").length * 450);
     setPhase("speaking");
-    window.speechSynthesis.speak(utterance);
+
+    const player = new Audio(`/api/voice/speak?text=${encodeURIComponent(words)}`);
+    audio.current = player;
+    player.onended = done;
+    player.onerror = () => myTurn === turn.current && !finished && browserSay(words, done);
+    player.play().catch(() => myTurn === turn.current && !finished && browserSay(words, done));
+    // Never get stuck if neither voice says it finished.
+    setTimeout(done, 4000 + words.split(" ").length * 450);
   }
 
-  function listen(forField: F) {
+  function listen() {
     const speech = makeRecognition();
     if (!speech) {
       setCanListen(false);
@@ -102,11 +113,11 @@ export function VoiceInterview<F extends VoiceField>(props: {
     };
     speech.onerror = () => {
       if (myTurn !== turn.current) return;
-      setMessage("Couldn't hear that. Check the microphone, or type your answer.");
+      setMessage((current) => current ?? "Couldn't hear that. Check the microphone, or type your answer.");
     };
     speech.onend = () => {
       if (myTurn !== turn.current) return;
-      if (heard.current) submit(forField, heard.current);
+      if (heard.current) submit(heard.current);
       else setPhase("waiting");
     };
     recognition.current = speech;
@@ -114,31 +125,19 @@ export function VoiceInterview<F extends VoiceField>(props: {
     speech.start();
   }
 
-  function ask(forField: F, before = "") {
-    speak(`${before}${VOICE_QUESTIONS[forField]}`, () => listen(forField));
+  function ask(before = "") {
+    speak(before ? `${before} ${VOICE_QUESTIONS[field]}` : VOICE_QUESTIONS[field], listen);
   }
 
   // Couldn't use that answer: say why and ask again, a couple of times at most.
-  function askAgain(forField: F, why: string) {
+  function askAgain(why: string) {
     setMessage(why);
     tries.current += 1;
-    if (tries.current < MAX_TRIES) ask(forField, `${why} `);
+    if (tries.current < MAX_TRIES) ask(why);
     else setPhase("waiting");
   }
 
-  function next() {
-    stopEverything();
-    tries.current = 0;
-    setText("");
-    setMessage(null);
-    if (index + 1 < props.fields.length) {
-      setIndex(index + 1);
-    } else {
-      props.onDone();
-    }
-  }
-
-  async function submit(forField: F, answerText: string) {
+  async function submit(answerText: string) {
     recognition.current?.stop();
     setPhase("reading");
     setMessage(null);
@@ -147,71 +146,67 @@ export function VoiceInterview<F extends VoiceField>(props: {
       const response = await fetch("/api/sign/parse", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ field: forField, text: answerText }),
+        body: JSON.stringify({ field, text: answerText }),
       });
       const result = await response.json();
       if (myTurn !== turn.current) return;
 
-      if (result.offTopic) return askAgain(forField, result.error);
+      if (result.offTopic) return askAgain(VOICE_REPLIES.offTopic);
       if (!response.ok) {
         setMessage(result.error);
         setPhase("waiting");
         return;
       }
-      if (result.answer === null) return askAgain(forField, "Sorry, I didn't catch that.");
+      if (result.answer === null) return askAgain(VOICE_REPLIES.missed);
 
-      props.onAnswer(forField, result.answer);
-      setMessage(`Got it: ${describeAnswer(forField, result.answer)}`);
-      speak("Got it.", next);
+      const answer = result.answer as VoiceAnswer[F];
+      speak(VOICE_REPLIES.gotIt, () => props.onAnswer(answer));
     } catch {
       if (myTurn !== turn.current) return;
-      setMessage("Couldn't read that right now. You can use the buttons instead.");
+      setMessage("Couldn't read that right now. Fill it in yourself instead.");
       setPhase("waiting");
     }
   }
 
-  // Ask each question as it comes up. Stop talking and listening when the box closes.
+  // Ask as soon as the box opens. Stop talking and listening when it closes.
   useEffect(() => {
-    const start = setTimeout(() => ask(field), 0);
+    const start = setTimeout(() => ask(), 0);
     return () => {
       clearTimeout(start);
       stopEverything();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [index]);
+  }, [field]);
 
   const status: Record<Phase, string> = {
     speaking: "Asking...",
     listening: "Listening...",
     reading: "Reading your answer...",
-    waiting: canListen ? "Tap Answer out loud, or type your answer." : "Type your answer.",
+    waiting: canListen ? "Tap Answer out loud, or type your answer." : "Type your answer below.",
   };
 
   return (
-    <div className="flex flex-col gap-3 rounded-2xl border p-5" aria-live="polite">
-      {props.fields.length > 1 && (
-        <p className="text-muted-foreground">
-          Question {index + 1} of {props.fields.length}
-        </p>
-      )}
-      <Label htmlFor="voice-answer" className={props.hideQuestion ? "sr-only" : "text-lg font-medium"}>
-        {VOICE_QUESTIONS[field]}
-      </Label>
-      <p className="text-muted-foreground">{status[phase]}</p>
+    <div className="flex flex-col gap-3" aria-live="polite">
+      <div className="flex items-center gap-3">
+        <KnockMark busy={phase !== "waiting"} />
+        <p className="text-muted-foreground">{message ?? status[phase]}</p>
+      </div>
 
+      <Label htmlFor={`answer-${field}`} className="sr-only">
+        Your answer
+      </Label>
       <Textarea
-        id="voice-answer"
+        id={`answer-${field}`}
         value={text}
         maxLength={500}
         onChange={(event) => setText(event.target.value)}
         placeholder="Your answer shows up here. You can fix it before using it."
         className="min-h-20 text-lg md:text-lg"
       />
-      {message && <p role="status">{message}</p>}
 
-      <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
         <Button
-          onClick={() => submit(field, text)}
+          onClick={() => submit(text)}
           disabled={text.trim() === "" || phase === "reading"}
           className="h-12 text-lg"
         >
@@ -225,7 +220,7 @@ export function VoiceInterview<F extends VoiceField>(props: {
               tries.current = 0;
               setText("");
               setMessage(null);
-              listen(field);
+              listen();
             }}
             disabled={phase === "listening" || phase === "reading"}
             className="h-12 text-lg"
@@ -233,10 +228,24 @@ export function VoiceInterview<F extends VoiceField>(props: {
             Answer out loud
           </Button>
         )}
-        <Button variant="outline" onClick={next} className="h-12 text-lg">
-          Skip
-        </Button>
       </div>
     </div>
+  );
+}
+
+// The Knock app icon (same as src/app/icon.svg). It pulses while the voice is talking or listening.
+function KnockMark({ busy }: { busy: boolean }) {
+  return (
+    <svg viewBox="0 0 64 64" aria-hidden data-busy={busy} className="voice-mark size-6 shrink-0">
+      <rect width="64" height="64" rx="14" fill="#1c1917" />
+      <text x="8" y="50" fill="#fff" fontFamily="Arial Black, Arial, sans-serif" fontSize="40" fontWeight="900">
+        K
+      </text>
+      <g stroke="#fff" strokeWidth="5" strokeLinecap="round">
+        <line x1="44" y1="17" x2="46" y2="8" />
+        <line x1="48" y1="22" x2="55" y2="15" />
+        <line x1="50" y1="29" x2="58" y2="28" />
+      </g>
+    </svg>
   );
 }

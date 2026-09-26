@@ -16,8 +16,8 @@ import {
   weeklyOccurrences,
 } from "@/lib/week";
 
-// Pickers for Door Sign fields, used by setup (/sign/setup) and by the inline
-// editors on the sign (/sign, desk). The editors add Save (with Undo) and Cancel.
+// Pickers for Door Sign fields, used by the question cards in setup and on /sign
+// when the office fills an answer in by hand.
 
 export function Chip({
   selected,
@@ -435,79 +435,6 @@ export function CapStepper({ value, onChange }: { value: number; onChange: (valu
       >
         More
       </Button>
-    </div>
-  );
-}
-
-// --- Inline editors for one setting: a picker plus Save / Cancel. The setting's label is the title. ---
-
-function SaveCancel({ onSave, onCancel }: { onSave: () => void; onCancel: () => void }) {
-  return (
-    <div className="flex gap-3 pt-2">
-      <Button onClick={onSave} className="h-12 px-6 text-lg">
-        Save
-      </Button>
-      <Button variant="outline" onClick={onCancel} className="h-12 px-6 text-lg">
-        Cancel
-      </Button>
-    </div>
-  );
-}
-
-export function ChoiceEditor<T extends string>({
-  options,
-  selected,
-  onSave,
-  onCancel,
-  allowNew,
-}: {
-  options: { value: T; label: string }[];
-  selected: T[];
-  onSave: (selected: T[]) => void;
-  onCancel: () => void;
-  allowNew?: { label: string };
-}) {
-  const [draft, setDraft] = useState<T[]>(selected);
-  return (
-    <div className="flex flex-col gap-3">
-      <ChoicePicker options={options} value={draft} onChange={setDraft} allowNew={allowNew} />
-      <SaveCancel onSave={() => onSave(draft)} onCancel={onCancel} />
-    </div>
-  );
-}
-
-export function SlotsEditor({
-  slots,
-  onSave,
-  onCancel,
-}: {
-  slots: VisitSlot[];
-  onSave: (slots: VisitSlot[]) => void;
-  onCancel: () => void;
-}) {
-  const [draft, setDraft] = useState<VisitSlot[]>(slots);
-  return (
-    <div className="flex flex-col gap-3">
-      <SlotsPicker value={draft} onChange={setDraft} />
-      <SaveCancel onSave={() => onSave(draft)} onCancel={onCancel} />
-    </div>
-  );
-}
-
-export function CapEditor({
-  cap,
-  onSave,
-  onCancel,
-}: {
-  cap: number;
-  onSave: (cap: number) => void;
-  onCancel: () => void;
-}) {
-  const [draft, setDraft] = useState(cap);
-  return (
-    <div className="flex flex-col gap-3">
-      <CapStepper value={draft} onChange={setDraft} />
-      <SaveCancel onSave={() => onSave(draft)} onCancel={onCancel} />
     </div>
   );
 }

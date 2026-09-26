@@ -4,7 +4,12 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { DoorSign } from "@/components/door-sign";
-import { CapStepper, ChoicePicker, SlotsPicker } from "@/components/sign-line-editors";
+import {
+  QUESTION_FIELDS,
+  SignQuestions,
+  SignReview,
+  type QuestionValues,
+} from "@/components/sign-questions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -12,51 +17,27 @@ import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import type { SignChange } from "@/lib/sign";
-import { REDIRECT_OPTION_LABELS, STATUS_STYLE } from "@/lib/status-style";
-import type { Office, RedirectAction, Status, VisitSlot } from "@/lib/types";
-import { VoiceInterview } from "@/components/voice-interview";
-import type { VoiceAnswer, VoiceField } from "@/lib/voice-questions";
+import { STATUS_STYLE } from "@/lib/status-style";
+import type { Office, Status } from "@/lib/types";
 
 // Everything setup asks about. It starts as the current sign and is saved in one go.
-type Draft = {
+type Draft = QuestionValues & {
   npi: string;
   name: string;
   specialty: string;
   address: string;
   status: Status;
-  topics: string[];
   topicsNote: string;
-  visitSlots: VisitSlot[];
-  weeklyCap: number;
-  redirectOptions: RedirectAction[];
 };
 
-const STEPS = ["who", "status", "topics", "visits", "cap", "redirects", "review"] as const;
+// Three screens: who you are, the questions, and a check before saving.
+const STEPS = ["who", "questions", "review"] as const;
 type Step = (typeof STEPS)[number];
 
 const STEP_TITLES: Record<Step, string> = {
   who: "Who are you?",
-  status: "Are you taking rep visits?",
-  topics: "Which topics do you want to hear about?",
-  visits: "When can reps visit?",
-  cap: "How many rep visits a week, at most?",
-  redirects: "What can reps do instead of a visit?",
-  review: "Here's your Door Sign",
-};
-
-// Which sign field Talk mode asks about on each step.
-const VOICE_STEP: Partial<Record<Step, VoiceField>> = {
-  status: "status",
-  topics: "topics",
-  visits: "visitSlots",
-  cap: "weeklyCap",
-  redirects: "redirectOptions",
-};
-
-// Small grey line under a question, where it helps.
-const STEP_HINTS: Partial<Record<Step, string>> = {
-  status: "You can change this anytime.",
-  cap: "Private. Reps never see this number.",
+  questions: "How do you take rep visits?",
+  review: "Your Door Sign",
 };
 
 const STATUSES: { value: Status; label: string }[] = [
@@ -72,24 +53,22 @@ const SELECTED_STATUS: Record<Status, string> = {
   closed: `${STATUS_STYLE.closed.className} hover:bg-status-closed/90 hover:text-status-closed-foreground`,
 };
 
+type SignData = { office: Office; brandBlocks: string[]; areas: string[]; companies: string[] };
+
 export function SetupFlow({ officeId }: { officeId: string }) {
   const router = useRouter();
-  const [office, setOffice] = useState<Office | null>(null);
-  const [areas, setAreas] = useState<string[]>([]);
+  const [data, setData] = useState<SignData | null>(null);
   const [draft, setDraft] = useState<Draft | null>(null);
   const [stepIndex, setStepIndex] = useState(0);
   const [saving, setSaving] = useState(false);
-  // Talk mode asks each question out loud. Both modes fill the same draft.
-  const [mode, setMode] = useState<"type" | "talk">("type");
 
   // Start from the office's current sign, once.
   useEffect(() => {
     fetch(`/api/sign?officeId=${officeId}`, { cache: "no-store" })
       .then((response) => response.json())
-      .then((data: { office: Office; areas: string[] }) => {
-        const current = data.office;
-        setOffice(current);
-        setAreas(data.areas);
+      .then((loaded: SignData) => {
+        const current = loaded.office;
+        setData(loaded);
         setDraft({
           npi: current.npi ?? "",
           name: current.name,
@@ -101,12 +80,13 @@ export function SetupFlow({ officeId }: { officeId: string }) {
           visitSlots: current.visit_slots,
           weeklyCap: current.weekly_cap,
           redirectOptions: current.redirect_options,
+          blockedCompanies: loaded.brandBlocks,
         });
       })
       .catch(() => toast.error("Couldn't load your sign. Please refresh."));
   }, [officeId]);
 
-  if (!office || !draft) {
+  if (!data || !draft) {
     return (
       <Frame>
         <Skeleton className="h-10 w-72" />
@@ -115,22 +95,9 @@ export function SetupFlow({ officeId }: { officeId: string }) {
     );
   }
 
+  const office = data.office;
   const step = STEPS[stepIndex];
-  const isLast = stepIndex === STEPS.length - 1;
-  const update = (fields: Partial<Draft>) => setDraft({ ...draft, ...fields });
-
-  // A spoken answer fills in its one field, the same as tapping the buttons would.
-  function applyVoice<F extends VoiceField>(field: F, answer: VoiceAnswer[F]) {
-    const fields: Partial<Record<VoiceField, keyof Draft>> = {
-      status: "status",
-      topics: "topics",
-      visitSlots: "visitSlots",
-      redirectOptions: "redirectOptions",
-      weeklyCap: "weeklyCap",
-    };
-    const key = fields[field];
-    if (key) setDraft((current) => (current ? { ...current, [key]: answer } : current));
-  }
+  const update = (fields: Partial<Draft>) => setDraft((current) => (current ? { ...current, ...fields } : current));
 
   async function save() {
     if (!draft) return;
@@ -149,6 +116,7 @@ export function SetupFlow({ officeId }: { officeId: string }) {
       visit_slots: draft.visitSlots,
       weekly_cap: draft.weeklyCap,
       redirect_options: draft.redirectOptions,
+      brand_blocks: draft.blockedCompanies,
     };
     try {
       const response = await fetch("/api/sign", {
@@ -183,150 +151,83 @@ export function SetupFlow({ officeId }: { officeId: string }) {
   return (
     <Frame>
       <header className="flex flex-col gap-3">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <p className="text-muted-foreground">
-            Step {stepIndex + 1} of {STEPS.length}
-          </p>
-          {/* Talk / Type: both fill the same draft, and switching keeps every answer. */}
-          <div className="flex gap-2">
-            {(["type", "talk"] as const).map((option) => (
-              <Button
-                key={option}
-                variant={mode === option ? "default" : "outline"}
-                aria-pressed={mode === option}
-                onClick={() => setMode(option)}
-                className="h-12 px-5 text-lg"
-              >
-                {option === "type" ? "Type" : "Talk"}
-              </Button>
-            ))}
-          </div>
-        </div>
+        <p className="text-muted-foreground">
+          Step {stepIndex + 1} of {STEPS.length}
+        </p>
         <Progress value={((stepIndex + 1) / STEPS.length) * 100} />
         <h1 className="text-3xl font-semibold">{STEP_TITLES[step]}</h1>
-        {STEP_HINTS[step] && <p className="text-muted-foreground">{STEP_HINTS[step]}</p>}
       </header>
 
-      <div className="grid grid-cols-1 gap-8 lg:grid-cols-2">
+      {step === "who" && (
+        <section className="flex max-w-xl flex-col gap-5">
+          <WhoStep draft={draft} update={update} />
+          <Button
+            onClick={() => setStepIndex(1)}
+            disabled={draft.name.trim() === ""}
+            className="h-14 text-lg"
+          >
+            Next
+          </Button>
+        </section>
+      )}
+
+      {/* Hidden, not removed, while reviewing, so Go back returns to the same cards. */}
+      <div className={step === "questions" ? "grid grid-cols-1 gap-8 lg:grid-cols-2" : "hidden"}>
         <section className="flex flex-col gap-5">
-          {/* Talk mode: the question is asked out loud first. The buttons below still work. */}
-          {mode === "talk" && VOICE_STEP[step] && (
-            <VoiceInterview
-              key={step}
-              fields={[VOICE_STEP[step]!]}
-              hideQuestion
-              onAnswer={applyVoice}
-              onDone={() => setStepIndex((current) => Math.min(current + 1, STEPS.length - 1))}
-            />
-          )}
-          {mode === "talk" && step === "who" && (
-            <p className="rounded-2xl border p-5">
-              Fill in who you are and tap Next. Then the rest of the questions are asked out loud.
-            </p>
-          )}
+          <div className="flex flex-col gap-3 rounded-3xl bg-card p-5 shadow-lg ring-1 ring-foreground/10">
+            <h2 className="text-xl font-semibold">Are you taking rep visits?</h2>
+            {STATUSES.map((option) => {
+              const selected = draft.status === option.value;
+              return (
+                <Button
+                  key={option.value}
+                  variant="outline"
+                  aria-pressed={selected}
+                  onClick={() => update({ status: option.value })}
+                  className={`h-14 justify-start px-5 text-lg ${selected ? SELECTED_STATUS[option.value] : ""}`}
+                >
+                  {option.label}
+                </Button>
+              );
+            })}
+          </div>
 
-          {step === "who" && <WhoStep draft={draft} update={update} />}
-
-          {step === "status" && (
-            <div className="flex flex-col gap-3">
-              {STATUSES.map((option) => {
-                const selected = draft.status === option.value;
-                return (
-                  <Button
-                    key={option.value}
-                    variant="outline"
-                    aria-pressed={selected}
-                    onClick={() => update({ status: option.value })}
-                    className={`h-16 justify-start px-5 text-lg ${selected ? SELECTED_STATUS[option.value] : ""}`}
-                  >
-                    {option.label}
-                  </Button>
-                );
-              })}
-            </div>
-          )}
-
-          {step === "topics" && (
-            <>
-              <ChoicePicker
-                options={[...new Set([...areas, ...draft.topics])].map((area) => ({
-                  value: area,
-                  label: area,
-                }))}
-                value={draft.topics}
-                onChange={(topics) => update({ topics })}
-                allowNew={{ label: "Add a topic" }}
-              />
-              <div className="flex flex-col gap-2">
-                <Label htmlFor="topics-note" className="text-lg">
-                  Anything else reps should know? (optional)
-                </Label>
-                <Textarea
-                  id="topics-note"
-                  value={draft.topicsNote}
-                  maxLength={280}
-                  onChange={(event) => update({ topicsNote: event.target.value })}
-                  className="min-h-24 text-lg md:text-lg"
-                />
-              </div>
-            </>
-          )}
-
-          {step === "visits" && (
-            <SlotsPicker value={draft.visitSlots} onChange={(visitSlots) => update({ visitSlots })} />
-          )}
-
-          {step === "cap" && (
-            <CapStepper value={draft.weeklyCap} onChange={(weeklyCap) => update({ weeklyCap })} />
-          )}
-
-          {step === "redirects" && (
-            <ChoicePicker<RedirectAction>
-              options={(Object.keys(REDIRECT_OPTION_LABELS) as RedirectAction[]).map((option) => ({
-                value: option,
-                label: REDIRECT_OPTION_LABELS[option],
-              }))}
-              value={draft.redirectOptions}
-              onChange={(redirectOptions) => update({ redirectOptions })}
+          {step !== "who" && (
+            <SignQuestions
+              values={draft}
+              onChange={(field, value) => update({ [field]: value } as Partial<Draft>)}
+              areas={data.areas}
+              companies={data.companies}
+              startWith={QUESTION_FIELDS[0]}
+              onFinished={() => setStepIndex(2)}
             />
           )}
 
-          {step === "review" && (
-            <p>
-              Check the sign. It takes effect on the very next request, and you can undo it right
-              after saving.
-            </p>
-          )}
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="topics-note" className="text-lg">
+              Anything else reps should know? (optional)
+            </Label>
+            <Textarea
+              id="topics-note"
+              value={draft.topicsNote}
+              maxLength={280}
+              onChange={(event) => update({ topicsNote: event.target.value })}
+              className="min-h-24 text-lg md:text-lg"
+            />
+          </div>
 
-
-          <div className="flex gap-3 pt-2">
-            {stepIndex > 0 && (
-              <Button
-                variant="outline"
-                onClick={() => setStepIndex(stepIndex - 1)}
-                className="h-14 flex-1 text-lg"
-              >
-                Back
-              </Button>
-            )}
-            {isLast ? (
-              <Button onClick={save} disabled={saving} className="h-14 flex-1 text-lg">
-                {saving ? "Saving..." : "Save my sign"}
-              </Button>
-            ) : (
-              <Button
-                onClick={() => setStepIndex(stepIndex + 1)}
-                disabled={step === "who" && draft.name.trim() === ""}
-                className="h-14 flex-1 text-lg"
-              >
-                Next
-              </Button>
-            )}
+          <div className="flex gap-3">
+            <Button variant="outline" onClick={() => setStepIndex(0)} className="h-14 flex-1 text-lg">
+              Back
+            </Button>
+            <Button onClick={() => setStepIndex(2)} className="h-14 flex-1 text-lg">
+              Review my sign
+            </Button>
           </div>
         </section>
 
-        {/* Live preview, beside the question on a laptop and below it on a phone. */}
-        <aside className="flex flex-col gap-3">
+        {/* Live preview, beside the questions on a laptop and below them on a phone. */}
+        <aside className="flex flex-col gap-3 lg:sticky lg:top-6 lg:self-start">
           <p className="text-center text-muted-foreground">This is what reps see.</p>
           <DoorSign
             name={draft.name || "Your office"}
@@ -341,6 +242,25 @@ export function SetupFlow({ officeId }: { officeId: string }) {
           />
         </aside>
       </div>
+
+      {step === "review" && (
+        <section className="max-w-xl">
+          <SignReview
+            sign={{
+              name: draft.name || "Your office",
+              neighborhood: office.neighborhood,
+              specialty: draft.specialty || null,
+              status: draft.status,
+              topicsNote: draft.topicsNote || null,
+            }}
+            values={draft}
+            saving={saving}
+            saveLabel="Save my sign"
+            onSave={save}
+            onBack={() => setStepIndex(1)}
+          />
+        </section>
+      )}
     </Frame>
   );
 }

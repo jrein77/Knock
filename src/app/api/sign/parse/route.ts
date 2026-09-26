@@ -2,7 +2,7 @@ import { xai } from "@ai-sdk/xai";
 import { generateText, Output } from "ai";
 import { z } from "zod";
 import { createServerClient } from "@/lib/supabase/server";
-import { VOICE_QUESTIONS, type VoiceField } from "@/lib/voice-questions";
+import { VOICE_QUESTIONS, VOICE_REPLIES, type VoiceField } from "@/lib/voice-questions";
 
 // Talk mode: turn the doctor's answer to one setup question into that one Door Sign field.
 //
@@ -21,7 +21,7 @@ const TIME = z.string().regex(/^\d{2}:\d{2}$/).describe('24-hour "HH:MM"');
 const MAX_ANSWER = 500;
 
 const TRY_AGAIN = "Couldn't read that right now. You can use the buttons instead.";
-const OFF_TOPIC = "Let's keep to rep visits.";
+const OFF_TOPIC = VOICE_REPLIES.offTopic;
 
 // What a good answer looks like for each field. Choices come from Knock's own lists.
 function answerSchema(field: VoiceField, areas: string[], companies: string[]) {
