@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 import { DrugTiles } from "@/components/drug-tiles";
 import { LeaveNote } from "@/components/leave-note";
+import { SearchIcon } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -381,23 +382,38 @@ function Offices({
       )}
 
       {offices && (
-        <Input
-          aria-label="Search offices"
-          placeholder="Search offices, neighborhoods, or topics"
-          value={search}
-          onChange={(event) => setSearch(event.target.value)}
-          className="h-12 text-lg md:text-lg"
-        />
+        <div className="flex flex-col gap-1">
+          <div className="relative">
+            <SearchIcon
+              aria-hidden
+              className="pointer-events-none absolute top-1/2 left-3 size-5 -translate-y-1/2 text-muted-foreground"
+            />
+            <Input
+              aria-label="Search offices"
+              placeholder="Search offices, neighborhoods, or topics"
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              className="h-12 pl-10 text-lg md:text-lg"
+            />
+          </div>
+          {/* Right under the box: how many matched, and a way back to the full list. */}
+          {query !== "" && (
+            <p aria-live="polite" className="flex flex-wrap items-center gap-x-2 text-muted-foreground">
+              <span>
+                {matches.length === 0
+                  ? `No offices match "${search.trim()}".`
+                  : `${matches.length} ${matches.length === 1 ? "office matches" : "offices match"} "${search.trim()}".`}
+              </span>
+              <button type="button" onClick={() => setSearch("")} className="min-h-12 underline">
+                Clear
+              </button>
+            </p>
+          )}
+        </div>
       )}
 
-      {offices && query !== "" && (
-        matches.length > 0 ? (
-          <OfficeSection title="Matches" count={matches.length}>
-            {matches.map(rowFor)}
-          </OfficeSection>
-        ) : (
-          <p className="py-6 text-center text-muted-foreground">No offices match that.</p>
-        )
+      {offices && query !== "" && matches.length > 0 && (
+        <ul className="divide-y overflow-hidden rounded-2xl border bg-card">{matches.map(rowFor)}</ul>
       )}
 
       {offices && query === "" && (
