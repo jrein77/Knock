@@ -6,7 +6,6 @@ import { DoorSign, type SignLine } from "@/components/door-sign";
 import { CapEditor, ChoiceEditor, SlotsEditor } from "@/components/sign-line-editors";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import type { LastChange, SignChange } from "@/lib/sign";
 import { REDIRECT_OPTION_LABELS, STATUS_STYLE } from "@/lib/status-style";
 import type { Office, RedirectAction, Status } from "@/lib/types";
@@ -21,14 +20,11 @@ type SignData = {
   companies: string[];
 };
 
-const STATUSES: Status[] = ["open", "topics", "closed"];
-
-// The pressed status button takes that status's color.
-const PRESSED_STYLE: Record<Status, string> = {
-  open: "aria-pressed:bg-status-open aria-pressed:text-status-open-foreground",
-  topics: "aria-pressed:bg-status-topics aria-pressed:text-status-topics-foreground",
-  closed: "aria-pressed:bg-status-closed aria-pressed:text-status-closed-foreground",
-};
+const STATUSES: { value: Status; label: string }[] = [
+  { value: "open", label: "Open" },
+  { value: "topics", label: "Topics only" },
+  { value: "closed", label: "Closed" },
+];
 
 async function postJson(url: string, body: unknown): Promise<{ historyId: string | null } | null> {
   try {
@@ -44,11 +40,11 @@ async function postJson(url: string, body: unknown): Promise<{ historyId: string
 }
 
 // The office's editable Door Sign. Used on /sign and in the desk's "Our Sign" view.
-export function SignEditor({ officeId }: { officeId: string }) {
+// `showName` is off on the desk, where the page header already shows the office name.
+export function SignEditor({ officeId, showName = true }: { officeId: string; showName?: boolean }) {
   const [data, setData] = useState<SignData | null>(null);
   const [loadFailed, setLoadFailed] = useState(false);
   const [editing, setEditing] = useState<SignLine | null>(null);
-  const [pendingStatus, setPendingStatus] = useState<Status | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -64,17 +60,15 @@ export function SignEditor({ officeId }: { officeId: string }) {
   // Reload whenever anything on this office changes, e.g. an edit from the desk.
   useOfficePings(officeId, load);
 
-  // Clicking anywhere outside an open editor (or the status choice) closes it, like Cancel.
+  // Clicking anywhere outside an open editor closes it, like Cancel.
   useEffect(() => {
-    if (!editing && !pendingStatus) return;
+    if (!editing) return;
     function closeOnOutsideClick(event: PointerEvent) {
-      const target = event.target as Element;
-      if (!target.closest("[data-open-editor]")) setEditing(null);
-      if (!target.closest("[data-status-picker]")) setPendingStatus(null);
+      if (!(event.target as Element).closest("[data-open-editor]")) setEditing(null);
     }
     document.addEventListener("pointerdown", closeOnOutsideClick);
     return () => document.removeEventListener("pointerdown", closeOnOutsideClick);
-  }, [editing, pendingStatus]);
+  }, [editing]);
 
   // Undo, never confirm: every change shows a toast with Undo for 10 seconds.
   function showUndo(message: string, historyId: string | null) {
@@ -95,7 +89,6 @@ export function SignEditor({ officeId }: { officeId: string }) {
 
   async function save(change: SignChange, summary: string) {
     setEditing(null);
-    setPendingStatus(null);
     const saved = await postJson("/api/sign", { officeId, change, summary });
     if (!saved) {
       toast.error("Couldn't save that change. Please try again.");
@@ -149,6 +142,8 @@ export function SignEditor({ officeId }: { officeId: string }) {
   function renderEditor(line: SignLine) {
     const close = () => setEditing(null);
     switch (line) {
+      case "status":
+        return <StatusEditor current={office.effective_status} onPick={setStatus} onCancel={close} />;
       case "topics":
         return (
           <ChoiceEditor
@@ -212,55 +207,11 @@ export function SignEditor({ officeId }: { officeId: string }) {
 
   return (
     <div className="flex flex-col gap-6">
-      <section data-status-picker className="flex flex-col gap-3">
-        <p className="font-medium">Change your status</p>
-        <ToggleGroup
-          value={[pendingStatus ?? office.effective_status]}
-          onValueChange={(value) => {
-            const picked = value[0] as Status | undefined;
-            if (picked) setPendingStatus(picked === office.effective_status ? null : picked);
-          }}
-          spacing={2}
-          className="grid w-full grid-cols-3"
-        >
-          {STATUSES.map((status) => (
-            <ToggleGroupItem
-              key={status}
-              value={status}
-              variant="outline"
-              className={`h-16 w-full text-lg whitespace-normal ${PRESSED_STYLE[status]}`}
-            >
-              {status === "open" ? "Open" : status === "topics" ? "Topics only" : "Closed"}
-            </ToggleGroupItem>
-          ))}
-        </ToggleGroup>
-
-        {pendingStatus && (
-          <div className="flex flex-col gap-3 rounded-xl bg-muted p-4">
-            <p>
-              Make it <span className="font-semibold">{STATUS_STYLE[pendingStatus].label}</span>:
-            </p>
-            <div className="grid grid-cols-2 gap-3">
-              <Button onClick={() => setStatus(pendingStatus, true)} className="h-14 text-lg">
-                Just today
-              </Button>
-              <Button onClick={() => setStatus(pendingStatus, false)} className="h-14 text-lg">
-                From now on
-              </Button>
-            </div>
-            <Button
-              variant="ghost"
-              onClick={() => setPendingStatus(null)}
-              className="h-12 text-lg"
-            >
-              Keep it as is
-            </Button>
-          </div>
-        )}
-      </section>
-
-      <p className="-mb-3 text-center text-muted-foreground">This is what reps see.</p>
+      <p className="-mb-3 text-center text-muted-foreground">
+        This is what reps see. Tap any part to change it.
+      </p>
       <DoorSign
+        showName={showName}
         name={office.name}
         neighborhood={office.neighborhood}
         specialty={office.specialty}
@@ -290,6 +241,54 @@ export function SignEditor({ officeId }: { officeId: string }) {
           </Button>
         </p>
       )}
+    </div>
+  );
+}
+
+// Opens in place of the sign's status band: pick a status, then "Just today" or "From now on".
+function StatusEditor({
+  current,
+  onPick,
+  onCancel,
+}: {
+  current: Status;
+  onPick: (status: Status, justToday: boolean) => void;
+  onCancel: () => void;
+}) {
+  const [picked, setPicked] = useState<Status | null>(null);
+
+  return (
+    <div className="flex flex-col gap-3">
+      <p className="font-medium">Change your status</p>
+      <div className="grid grid-cols-3 gap-2">
+        {STATUSES.map((status) => {
+          const chosen = (picked ?? current) === status.value;
+          return (
+            <Button
+              key={status.value}
+              variant="outline"
+              aria-pressed={chosen}
+              onClick={() => setPicked(status.value === current ? null : status.value)}
+              className={`h-14 text-lg whitespace-normal ${chosen ? STATUS_STYLE[status.value].className : ""}`}
+            >
+              {status.label}
+            </Button>
+          );
+        })}
+      </div>
+      {picked ? (
+        <div className="grid grid-cols-2 gap-2">
+          <Button onClick={() => onPick(picked, true)} className="h-14 text-lg">
+            Just today
+          </Button>
+          <Button onClick={() => onPick(picked, false)} className="h-14 text-lg">
+            From now on
+          </Button>
+        </div>
+      ) : null}
+      <Button variant="ghost" onClick={onCancel} className="h-12 text-lg">
+        Keep it as is
+      </Button>
     </div>
   );
 }

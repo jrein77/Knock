@@ -21,7 +21,7 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { DECISION_STYLE, STATUS_STYLE } from "@/lib/status-style";
 import { useOfficePings } from "@/lib/use-office-pings";
 import type { DecisionKind, Office, Purpose, RedirectAction, Source, Status } from "@/lib/types";
-import { formatSlot, formatWhen, TIME_ZONE } from "@/lib/week";
+import { formatDate, formatSlot, formatWhen, shiftDate, TIME_ZONE } from "@/lib/week";
 
 type DeskRequest = {
   id: string;
@@ -58,9 +58,13 @@ type InboxItem = {
 
 type DeskData = {
   office: Office & { effective_status: Status };
+  day: string; // the day shown, "YYYY-MM-DD"
+  today: string;
   requests: DeskRequest[];
   inbox: InboxItem[];
 };
+
+type Filter = "all" | DecisionKind;
 
 // The desk sees why. Reps never do.
 const REASON_LABELS: Record<string, string> = {
@@ -109,19 +113,24 @@ async function postOverride(requestId: string, body: OverrideBody): Promise<bool
 export function LobbyBoard({ officeId }: { officeId: string }) {
   const [data, setData] = useState<DeskData | null>(null);
   const [loadFailed, setLoadFailed] = useState(false);
-  const [view, setView] = useState<"today" | "sign">("today");
+  const [view, setView] = useState<"requests" | "sign">("requests");
+  const [day, setDay] = useState<string | null>(null); // null = today
+  const [search, setSearch] = useState("");
+  const [filter, setFilter] = useState<Filter>("all");
 
   const load = useCallback(async () => {
     try {
-      const response = await fetch(`/api/desk?officeId=${officeId}`, { cache: "no-store" });
+      const dayParam = day ? `&date=${day}` : "";
+      const response = await fetch(`/api/desk?officeId=${officeId}${dayParam}`, { cache: "no-store" });
       if (!response.ok) throw new Error();
       setData(await response.json());
       setLoadFailed(false);
     } catch {
       setLoadFailed(true);
     }
-  }, [officeId]);
+  }, [officeId, day]);
 
+  // Loads now, again whenever the day changes, and on every ping from the server.
   useOfficePings(officeId, load);
 
   async function override(request: DeskRequest, action: "approve" | "decline") {
@@ -179,62 +188,133 @@ export function LobbyBoard({ officeId }: { officeId: string }) {
 
   const { office, requests, inbox } = data;
   const status = STATUS_STYLE[office.effective_status];
+  const isToday = data.day === data.today;
+
+  // Search and filter the day's requests.
+  const query = search.trim().toLowerCase();
+  const matching = requests.filter(
+    (r) =>
+      query === "" ||
+      [r.rep_name, r.rep_company, r.drugs?.brand].some((field) => field?.toLowerCase().includes(query))
+  );
+  const shown = matching.filter((r) => filter === "all" || r.decision === filter);
+  const countOf = (decision: DecisionKind) => matching.filter((r) => r.decision === decision).length;
 
   return (
     <Board>
-      <header className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex flex-wrap items-center gap-3">
-          <h1 className="text-3xl font-semibold">{office.name}</h1>
-          <Badge className={`h-auto px-4 py-1.5 text-lg ${status.className}`}>{status.label}</Badge>
-        </div>
+      {/* One row: the office, and its inbox. Status lives on the sign itself. */}
+      <header className="flex items-center justify-between gap-3">
+        <h1 className="min-w-0 text-xl font-semibold sm:text-3xl">{office.name}</h1>
         <Inbox items={inbox} onChange={load} />
       </header>
 
-      {/* Two views only: Today and Our Sign. */}
+      {/* Two views only: Requests and Our Sign. */}
       <ToggleGroup
         value={[view]}
         onValueChange={(value) => {
-          if (value[0]) setView(value[0] as "today" | "sign");
+          if (value[0]) setView(value[0] as "requests" | "sign");
         }}
         variant="outline"
         className="grid w-full grid-cols-2"
       >
-        <ToggleGroupItem value="today" className="h-12 w-full text-lg">
-          Today
+        <ToggleGroupItem value="requests" className="h-12 w-full text-lg">
+          Requests
         </ToggleGroupItem>
         <ToggleGroupItem value="sign" className="h-12 w-full text-lg">
           Our Sign
         </ToggleGroupItem>
       </ToggleGroup>
 
-      {view === "sign" && <SignEditor officeId={officeId} />}
+      {view === "sign" && <SignEditor officeId={officeId} showName={false} />}
 
-      {view === "today" && (
-        <section className="flex flex-col gap-3">
-          {requests.length === 0 && (
-            <p className="py-12 text-center text-muted-foreground">
-              No requests yet today. Scan the QR code to try it.
+      {view === "requests" && (
+        <section className="flex flex-col gap-4">
+          {/* Today's status, one tap from changing it. */}
+          <button
+            type="button"
+            onClick={() => setView("sign")}
+            className={`flex min-h-12 items-center justify-between gap-3 rounded-xl px-4 py-2 text-left text-lg ${status.className}`}
+          >
+            <span>
+              Door Sign: <span className="font-semibold">{status.label}</span>
+            </span>
+            <span className="text-base underline">Change</span>
+          </button>
+
+          {/* Which day. */}
+          <div className="flex items-center justify-between gap-2">
+            <Button
+              variant="outline"
+              onClick={() => setDay(shiftDate(data.day, -1))}
+              className="h-12 px-4 text-lg"
+            >
+              Earlier
+            </Button>
+            <p className="text-center text-lg font-medium">{dayLabel(data.day, data.today)}</p>
+            <Button
+              variant="outline"
+              onClick={() => setDay(shiftDate(data.day, 1) === data.today ? null : shiftDate(data.day, 1))}
+              disabled={isToday}
+              className="h-12 px-4 text-lg"
+            >
+              Later
+            </Button>
+          </div>
+
+          {/* Find someone, or narrow to one kind of answer. */}
+          <Input
+            aria-label="Search requests"
+            placeholder="Search by rep, company, or drug"
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            className="h-12 text-lg md:text-lg"
+          />
+          {/* One row; slides sideways on a narrow phone instead of wrapping. */}
+          <div className="-mx-6 flex gap-2 overflow-x-auto px-6 [scrollbar-width:none]">
+            <FilterChip selected={filter === "all"} onClick={() => setFilter("all")}>
+              All ({matching.length})
+            </FilterChip>
+            {(["accepted", "redirected", "declined"] as const).map((decision) => (
+              <FilterChip
+                key={decision}
+                selected={filter === decision}
+                onClick={() => setFilter(decision)}
+              >
+                {DECISION_STYLE[decision].label} ({countOf(decision)})
+              </FilterChip>
+            ))}
+          </div>
+
+          {shown.length === 0 && (
+            <p className="py-10 text-center text-muted-foreground">
+              {requests.length === 0
+                ? isToday
+                  ? "No requests yet today. Scan the QR code to try it."
+                  : "No requests that day."
+                : "Nothing matches."}
             </p>
           )}
 
           {/* New QR arrivals slide in. Rows already on the board at load don't animate. */}
-          <AnimatePresence initial={false}>
-            {requests.map((request) =>
-              request.source === "qr" ? (
-                <motion.div
-                  key={request.id}
-                  layout
-                  initial={{ opacity: 0, y: -32 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ type: "spring", stiffness: 300, damping: 28 }}
-                >
-                  <ArrivalCard request={request} onOverride={override} />
-                </motion.div>
-              ) : (
-                <QuietRow key={request.id} request={request} />
-              )
-            )}
-          </AnimatePresence>
+          <div className="flex flex-col gap-3">
+            <AnimatePresence initial={false}>
+              {shown.map((request) =>
+                request.source === "qr" ? (
+                  <motion.div
+                    key={request.id}
+                    layout
+                    initial={{ opacity: 0, y: -32 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ type: "spring", stiffness: 300, damping: 28 }}
+                  >
+                    <ArrivalCard request={request} onOverride={isToday ? override : undefined} />
+                  </motion.div>
+                ) : (
+                  <QuietRow key={request.id} request={request} />
+                )
+              )}
+            </AnimatePresence>
+          </div>
         </section>
       )}
 
@@ -245,6 +325,34 @@ export function LobbyBoard({ officeId }: { officeId: string }) {
       </footer>
     </Board>
   );
+}
+
+function FilterChip({
+  selected,
+  onClick,
+  children,
+}: {
+  selected: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <Button
+      variant={selected ? "default" : "outline"}
+      aria-pressed={selected}
+      onClick={onClick}
+      className="h-12 shrink-0 px-4 text-lg"
+    >
+      {children}
+    </Button>
+  );
+}
+
+// "Today", "Yesterday", or "Thu Sep 24".
+function dayLabel(day: string, today: string): string {
+  if (day === today) return "Today";
+  if (day === shiftDate(today, -1)) return "Yesterday";
+  return formatDate(day);
 }
 
 const INBOX_KIND_LABELS: Record<InboxItem["kind"], string> = {
@@ -301,8 +409,8 @@ function Inbox({ items, onChange }: { items: InboxItem[]; onChange: () => void }
 
   return (
     <>
-      <Button variant="outline" onClick={() => setOpen(true)} className="h-12 px-4 text-lg">
-        Messages ({newItems.length} new)
+      <Button variant="outline" onClick={() => setOpen(true)} className="h-12 shrink-0 px-4 text-lg">
+        Messages ({newItems.length})
       </Button>
       <Drawer open={open} onOpenChange={setOpen}>
         <DrawerContent>
@@ -399,26 +507,28 @@ function Board({ children }: { children: React.ReactNode }) {
 }
 
 // A rep who scanned the QR code at this desk. Full card with override buttons.
+// Overrides are only offered on today's board (`onOverride` is left out for past days).
 function ArrivalCard({
   request,
   onOverride,
 }: {
   request: DeskRequest;
-  onOverride: (request: DeskRequest, action: "approve" | "decline") => void;
+  onOverride?: (request: DeskRequest, action: "approve" | "decline") => void;
 }) {
-  const canApprove = request.decision !== "accepted";
-  const canDecline = request.decision !== "declined" && request.purpose !== "safety_notice";
+  const canApprove = onOverride && request.decision !== "accepted";
+  const canDecline =
+    onOverride && request.decision !== "declined" && request.purpose !== "safety_notice";
 
   return (
-    <Card className="gap-4 p-6 text-lg">
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <p className="text-base text-muted-foreground">
-            {formatTime(request.created_at)} · Scanned at the desk
-          </p>
-          <p className="text-2xl font-semibold">{request.rep_name}</p>
+    <Card className="gap-3 p-5 text-lg">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
           <p>
-            {request.rep_company} · {whatTheyBrought(request)}
+            <span className="text-xl font-semibold">{request.rep_name}</span>
+            <span className="text-muted-foreground"> · {request.rep_company}</span>
+          </p>
+          <p className="text-muted-foreground">
+            {whatTheyBrought(request)} · scanned {formatTime(request.created_at)}
           </p>
         </div>
         <DecisionBadge decision={request.decision} />
@@ -437,14 +547,14 @@ function ArrivalCard({
       {(canApprove || canDecline) && (
         <div className="flex flex-wrap gap-3">
           {canApprove && (
-            <Button onClick={() => onOverride(request, "approve")} className="h-12 px-5 text-lg">
+            <Button onClick={() => onOverride!(request, "approve")} className="h-12 px-5 text-lg">
               Approve anyway
             </Button>
           )}
           {canDecline && (
             <Button
               variant="outline"
-              onClick={() => onOverride(request, "decline")}
+              onClick={() => onOverride!(request, "decline")}
               className="h-12 px-5 text-lg"
             >
               Decline

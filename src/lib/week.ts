@@ -75,6 +75,17 @@ function nyInstantOn(date: string, time: string): Date {
   return wallClockInstant(year, month, day, time);
 }
 
+// Midnight in New York at the start of `date` ("YYYY-MM-DD").
+export function nyDayStart(date: string): Date {
+  return nyInstantOn(date, "00:00");
+}
+
+// The calendar date `days` after `date` ("YYYY-MM-DD"); negative goes back.
+export function shiftDate(date: string, days: number): string {
+  const [year, month, day] = date.split("-").map(Number);
+  return new Date(Date.UTC(year, month - 1, day + days)).toISOString().slice(0, 10);
+}
+
 // The weekday of a calendar date ("YYYY-MM-DD").
 export function weekdayOf(date: string): Day {
   const [year, month, day] = date.split("-").map(Number);

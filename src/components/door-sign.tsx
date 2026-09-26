@@ -5,9 +5,10 @@ import { REDIRECT_OPTION_LABELS, STATUS_STYLE } from "@/lib/status-style";
 import type { RedirectAction, Status, VisitSlot } from "@/lib/types";
 import { currentSlots, formatSlotLine, sortSlots } from "@/lib/week";
 
-export type SignLine = "topics" | "slots" | "redirects" | "cap" | "blocks";
+export type SignLine = "status" | "topics" | "slots" | "redirects" | "cap" | "blocks";
 
 type DoorSignProps = {
+  showName?: boolean; // off where the page header already shows the name
   name: string;
   neighborhood: string | null;
   specialty: string | null;
@@ -33,25 +34,45 @@ export function DoorSign(props: DoorSignProps) {
 
   return (
     <div className="overflow-hidden rounded-3xl bg-card text-card-foreground shadow-lg ring-1 ring-foreground/10">
-      <div className="px-7 pt-7 pb-5">
-        <h2 className="text-2xl font-semibold">{props.name}</h2>
-        {subtitle && <p className="text-muted-foreground">{subtitle}</p>}
-      </div>
+      {props.showName !== false && (
+        <div className="px-7 pt-7 pb-5">
+          <h2 className="text-2xl font-semibold">{props.name}</h2>
+          {subtitle && <p className="text-muted-foreground">{subtitle}</p>}
+        </div>
+      )}
 
-      {/* The status band flips over when the status changes. */}
-      <AnimatePresence mode="wait" initial={false}>
-        <motion.div
-          key={`${props.status}-${props.todayOnly}`}
-          initial={{ rotateX: -90, opacity: 0 }}
-          animate={{ rotateX: 0, opacity: 1 }}
-          exit={{ rotateX: 90, opacity: 0 }}
-          transition={{ duration: 0.25 }}
-          className={`px-7 py-4 text-2xl font-semibold ${status.className}`}
-        >
-          {status.label}
-          {props.todayOnly && <span className="font-normal"> (just today)</span>}
-        </motion.div>
-      </AnimatePresence>
+      {props.editing === "status" && props.renderEditor ? (
+        <div data-open-editor className="bg-background p-4 ring-1 ring-foreground/15">
+          {props.renderEditor("status")}
+        </div>
+      ) : (
+        // The status band flips over when the status changes. Tappable when editable.
+        <AnimatePresence mode="wait" initial={false}>
+          <motion.div
+            key={`${props.status}-${props.todayOnly}`}
+            initial={{ rotateX: -90, opacity: 0 }}
+            animate={{ rotateX: 0, opacity: 1 }}
+            exit={{ rotateX: 90, opacity: 0 }}
+            transition={{ duration: 0.25 }}
+            className={status.className}
+          >
+            {props.onEdit ? (
+              <button
+                type="button"
+                onClick={() => props.onEdit!("status")}
+                className="flex min-h-16 w-full items-center justify-between gap-4 px-7 py-4 text-left"
+              >
+                <StatusText label={status.label} todayOnly={props.todayOnly} />
+                <span className="text-base font-normal underline">Change</span>
+              </button>
+            ) : (
+              <div className="px-7 py-4">
+                <StatusText label={status.label} todayOnly={props.todayOnly} />
+              </div>
+            )}
+          </motion.div>
+        </AnimatePresence>
+      )}
 
       <div className="flex flex-col gap-1 px-4 py-4">
         <Line {...props} line="topics" label="Wants">
@@ -90,6 +111,15 @@ export function DoorSign(props: DoorSignProps) {
         </div>
       )}
     </div>
+  );
+}
+
+function StatusText({ label, todayOnly }: { label: string; todayOnly: boolean }) {
+  return (
+    <span className="text-2xl font-semibold">
+      {label}
+      {todayOnly && <span className="font-normal"> (just today)</span>}
+    </span>
   );
 }
 

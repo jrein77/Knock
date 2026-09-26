@@ -1,4 +1,6 @@
+import { after } from "next/server";
 import { z } from "zod";
+import { emailOverride } from "@/lib/override-email";
 import { pingOffice } from "@/lib/ping";
 import { createServerClient } from "@/lib/supabase/server";
 import type { Office } from "@/lib/types";
@@ -21,7 +23,11 @@ const OverrideBody = z.discriminatedUnion("action", [
   z.object({ action: z.literal("restore"), previous: Snapshot }),
 ]);
 
+// Long enough to wait out the Undo window before emailing the rep (see emailOverride).
+export const maxDuration = 30;
+
 // The front desk overrules the sign: "Approve anyway" or "Decline", plus Undo.
+// After an approve or decline, the rep gets an email unless the desk undoes it in time.
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const parsed = OverrideBody.safeParse(await request.json());
@@ -90,5 +96,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   }
 
   await pingOffice(db, request_.office_id);
+  if (body.action !== "restore") {
+    after(() => emailOverride(db, id, changes.overridden_at!));
+  }
   return Response.json({ ok: true });
 }

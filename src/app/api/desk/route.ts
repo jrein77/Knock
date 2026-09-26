@@ -1,19 +1,23 @@
 import { effectiveStatus } from "@/lib/decide";
 import { createServerClient } from "@/lib/supabase/server";
 import type { Office } from "@/lib/types";
-import { nyStartOfToday } from "@/lib/week";
+import { nyDayStart, nyToday, shiftDate } from "@/lib/week";
 
-// Everything the Lobby Board shows: the office, today's requests (newest first),
+// Everything the Lobby Board shows: the office, one day's requests (newest first; today by default),
 // and the inbox of notes and messages from reps.
 // Private (reason codes, blocks), so it's read here with the service role, not in the browser.
 export async function GET(request: Request) {
-  const officeId = new URL(request.url).searchParams.get("officeId");
+  const params = new URL(request.url).searchParams;
+  const officeId = params.get("officeId");
   if (!officeId) {
     return Response.json({ error: "officeId is required" }, { status: 400 });
   }
 
   const db = createServerClient();
   const now = new Date();
+
+  // Which day's requests to show ("YYYY-MM-DD", New York). Defaults to today.
+  const day = /^\d{4}-\d{2}-\d{2}$/.test(params.get("date") ?? "") ? params.get("date")! : nyToday(now);
 
   const [officeResult, requestsResult, notesResult, messagesResult] = await Promise.all([
     db.from("offices").select("*").eq("id", officeId).maybeSingle(),
@@ -23,7 +27,8 @@ export async function GET(request: Request) {
         "id, rep_name, rep_company, purpose, source, decision, reason_code, redirect_action, slot_at, overridden, overridden_at, original_decision, original_reason_code, redirect_taken_at, rep_message, created_at, drugs(brand)"
       )
       .eq("office_id", officeId)
-      .gte("created_at", nyStartOfToday(now).toISOString())
+      .gte("created_at", nyDayStart(day).toISOString())
+      .lt("created_at", nyDayStart(shiftDate(day, 1)).toISOString())
       .order("created_at", { ascending: false }),
     // Rep notes ("Think we got this wrong?"), newest first.
     db
@@ -83,6 +88,8 @@ export async function GET(request: Request) {
 
   return Response.json({
     office: { ...office, effective_status: effectiveStatus(office, now) },
+    day,
+    today: nyToday(now),
     requests: requestsResult.data,
     inbox,
   });
