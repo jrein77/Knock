@@ -6,6 +6,7 @@ import { DoorSign } from "@/components/door-sign";
 import { CapStepper, ChoicePicker, SlotsPicker } from "@/components/sign-line-editors";
 import { Button } from "@/components/ui/button";
 import { VoiceAnswerBox } from "@/components/voice-interview";
+import { closeMic } from "@/lib/mic";
 import { REDIRECT_OPTION_LABELS } from "@/lib/status-style";
 import type { RedirectAction, Status, VisitSlot } from "@/lib/types";
 import {
@@ -68,6 +69,12 @@ export function SignQuestions(props: {
   function questionFor(field: QuestionField): string {
     return field === "topics" ? topicsQuestion(props.specialty, props.areas) : VOICE_QUESTIONS[field];
   }
+
+  // The microphone stays on only while a card is being answered out loud.
+  useEffect(() => {
+    if (!active || how !== "say") closeMic();
+  }, [active, how]);
+  useEffect(() => closeMic, []);
 
   // While one card is being answered, fetch the next card's voice so it starts without a wait.
   // Each line is cached by the browser after the first time.
