@@ -7,10 +7,12 @@ import type { SignLine } from "@/components/door-sign";
 import { CapEditor, ChoiceEditor, SlotsEditor } from "@/components/sign-line-editors";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { VoiceInterview } from "@/components/voice-interview";
 import type { LastChange, SignChange } from "@/lib/sign";
 import { REDIRECT_OPTION_LABELS, STATUS_STYLE } from "@/lib/status-style";
 import type { Office, RedirectAction, Status, VisitSlot } from "@/lib/types";
 import { useOfficePings } from "@/lib/use-office-pings";
+import { describeAnswer, type VoiceAnswer, type VoiceField } from "@/lib/voice-questions";
 import { formatDate, formatSlotLine, formatWhen, sortSlots, weeklyOccurrences } from "@/lib/week";
 
 type SignData = {
@@ -27,6 +29,24 @@ const STATUSES: { value: Status; label: string; effect: string }[] = [
   { value: "topics", label: "Topics only", effect: "Only reps with a topic you want." },
   { value: "closed", label: "Closed", effect: "No visits. Safety notices still get through." },
 ];
+
+// Talk mode on /sign asks these, in this order.
+const VOICE_FIELDS: VoiceField[] = [
+  "status",
+  "topics",
+  "visitSlots",
+  "redirectOptions",
+  "weeklyCap",
+  "blockedCompanies",
+];
+const VOICE_LABELS: Record<VoiceField, string> = {
+  status: "Status",
+  topics: "Topics",
+  visitSlots: "Visit times",
+  redirectOptions: "Instead of a visit",
+  weeklyCap: "Weekly limit",
+  blockedCompanies: "Blocked companies",
+};
 
 // Everything the office sets besides the status. Each has its own editor.
 type Question = Exclude<SignLine, "status">;
@@ -51,6 +71,9 @@ export function SignEditor({ officeId, showName = true }: { officeId: string; sh
   const [data, setData] = useState<SignData | null>(null);
   const [loadFailed, setLoadFailed] = useState(false);
   const [editing, setEditing] = useState<Question | null>(null);
+  // Talk mode: "asking" while the questions are asked out loud, then "review" to check the answers.
+  const [talk, setTalk] = useState<"off" | "asking" | "review">("off");
+  const [heard, setHeard] = useState<Partial<VoiceAnswer>>({});
 
   const load = useCallback(async () => {
     try {
@@ -121,6 +144,26 @@ export function SignEditor({ officeId, showName = true }: { officeId: string; sh
   // so it takes effect right away.
   function setStatus(status: Status) {
     save({ status, today_status: null, today_status_date: null }, STATUS_STYLE[status].label);
+  }
+
+  function startTalk() {
+    setEditing(null);
+    setHeard({});
+    setTalk("asking");
+  }
+
+  // Put every answer from Talk mode on the sign as one change, with Undo.
+  function saveHeard() {
+    const change: SignChange = {};
+    if (heard.status) Object.assign(change, { status: heard.status, today_status: null, today_status_date: null });
+    if (heard.topics) change.topics = heard.topics;
+    if (heard.visitSlots) change.visit_slots = heard.visitSlots;
+    if (heard.redirectOptions) change.redirect_options = heard.redirectOptions;
+    if (heard.weeklyCap !== undefined) change.weekly_cap = heard.weeklyCap;
+    if (heard.blockedCompanies) change.brand_blocks = heard.blockedCompanies;
+    const names = VOICE_FIELDS.filter((field) => heard[field] !== undefined).map((field) => VOICE_LABELS[field]);
+    setTalk("off");
+    save(change, `Changed out loud: ${names.join(", ")}`);
   }
 
   if (!data) {
@@ -226,6 +269,54 @@ export function SignEditor({ officeId, showName = true }: { officeId: string; sh
   return (
     <div className="flex flex-col gap-6">
       {showName && <h1 className="text-2xl font-semibold">{office.name}</h1>}
+
+      {/* Talk mode: answer the questions out loud instead of tapping through the settings. */}
+      {talk === "off" && (
+        <Button variant="outline" onClick={startTalk} className="h-14 text-lg">
+          Answer out loud
+        </Button>
+      )}
+      {talk === "asking" && (
+        <div className="flex flex-col gap-2">
+          <VoiceInterview
+            fields={VOICE_FIELDS}
+            onAnswer={(field, answer) => setHeard((current) => ({ ...current, [field]: answer }))}
+            onDone={() => setTalk("review")}
+          />
+          <Button variant="ghost" onClick={() => setTalk("review")} className="h-12 text-lg">
+            Done answering
+          </Button>
+        </div>
+      )}
+      {talk === "review" && (
+        <div className="flex flex-col gap-3 rounded-2xl border p-5">
+          {Object.keys(heard).length === 0 ? (
+            <p>No answers to put on your sign.</p>
+          ) : (
+            <>
+              <p className="font-medium">Here&apos;s what you said:</p>
+              <ul className="flex flex-col gap-1">
+                {VOICE_FIELDS.filter((field) => heard[field] !== undefined).map((field) => (
+                  <li key={field}>
+                    <span className="text-muted-foreground">{VOICE_LABELS[field]}:</span>{" "}
+                    {describeAnswer(field, heard[field] as VoiceAnswer[typeof field])}
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+            {Object.keys(heard).length > 0 && (
+              <Button onClick={saveHeard} className="h-12 text-lg">
+                Put these on my sign
+              </Button>
+            )}
+            <Button variant="outline" onClick={() => setTalk("off")} className="h-12 text-lg">
+              {Object.keys(heard).length > 0 ? "Leave my sign as it is" : "Close"}
+            </Button>
+          </div>
+        </div>
+      )}
 
       {/* Public: this is the Door Sign reps check before they come. */}
       <section className="flex flex-col gap-4 rounded-3xl bg-card p-5 shadow-lg ring-1 ring-foreground/10">

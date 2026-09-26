@@ -14,7 +14,8 @@ import { Textarea } from "@/components/ui/textarea";
 import type { SignChange } from "@/lib/sign";
 import { REDIRECT_OPTION_LABELS, STATUS_STYLE } from "@/lib/status-style";
 import type { Office, RedirectAction, Status, VisitSlot } from "@/lib/types";
-import { DescribeSign, type Mode, type ParsedSign } from "./describe-sign";
+import { VoiceInterview } from "@/components/voice-interview";
+import type { VoiceAnswer, VoiceField } from "@/lib/voice-questions";
 
 // Everything setup asks about. It starts as the current sign and is saved in one go.
 type Draft = {
@@ -43,6 +44,15 @@ const STEP_TITLES: Record<Step, string> = {
   review: "Here's your Door Sign",
 };
 
+// Which sign field Talk mode asks about on each step.
+const VOICE_STEP: Partial<Record<Step, VoiceField>> = {
+  status: "status",
+  topics: "topics",
+  visits: "visitSlots",
+  cap: "weeklyCap",
+  redirects: "redirectOptions",
+};
+
 // Small grey line under a question, where it helps.
 const STEP_HINTS: Partial<Record<Step, string>> = {
   status: "You can change this anytime.",
@@ -69,9 +79,8 @@ export function SetupFlow({ officeId }: { officeId: string }) {
   const [draft, setDraft] = useState<Draft | null>(null);
   const [stepIndex, setStepIndex] = useState(0);
   const [saving, setSaving] = useState(false);
-  const [mode, setMode] = useState<Mode>("type");
-  // What the last "Fill in my sign" filled, listed on the review step so the doctor checks it.
-  const [filled, setFilled] = useState<string[] | null>(null);
+  // Talk mode asks each question out loud. Both modes fill the same draft.
+  const [mode, setMode] = useState<"type" | "talk">("type");
 
   // Start from the office's current sign, once.
   useEffect(() => {
@@ -110,55 +119,17 @@ export function SetupFlow({ officeId }: { officeId: string }) {
   const isLast = stepIndex === STEPS.length - 1;
   const update = (fields: Partial<Draft>) => setDraft({ ...draft, ...fields });
 
-  // Apply what Grok read from the doctor's own words, then show the whole sign to check.
-  function applyParsed(parsed: ParsedSign) {
-    if (!draft) return;
-    const before = draft;
-    const fields: Partial<Draft> = {};
-    const names: string[] = [];
-    if (parsed.status) {
-      fields.status = parsed.status;
-      names.push("Status");
-    }
-    if (parsed.topics) {
-      fields.topics = parsed.topics;
-      names.push("Topics");
-    }
-    if (parsed.topicsNote) {
-      fields.topicsNote = parsed.topicsNote;
-      names.push("Note to reps");
-    }
-    if (parsed.visitSlots) {
-      fields.visitSlots = parsed.visitSlots;
-      names.push("Visit times");
-    }
-    if (parsed.weeklyCap !== null) {
-      fields.weeklyCap = parsed.weeklyCap;
-      names.push(`Weekly limit (${parsed.weeklyCap}, private)`);
-    }
-    if (parsed.redirectOptions) {
-      fields.redirectOptions = parsed.redirectOptions;
-      names.push("Instead of a visit");
-    }
-    if (names.length === 0) {
-      toast("We didn't catch anything about rep visits in that. Try again, or use the buttons.");
-      return;
-    }
-
-    setDraft({ ...draft, ...fields });
-    setFilled(names);
-    setStepIndex(STEPS.indexOf("review"));
-    // Undo, never confirm.
-    toast(`Filled in ${names.length === 1 ? "1 answer" : `${names.length} answers`}. Check your sign.`, {
-      duration: 10_000,
-      action: {
-        label: "Undo",
-        onClick: () => {
-          setDraft(before);
-          setFilled(null);
-        },
-      },
-    });
+  // A spoken answer fills in its one field, the same as tapping the buttons would.
+  function applyVoice<F extends VoiceField>(field: F, answer: VoiceAnswer[F]) {
+    const fields: Partial<Record<VoiceField, keyof Draft>> = {
+      status: "status",
+      topics: "topics",
+      visitSlots: "visitSlots",
+      redirectOptions: "redirectOptions",
+      weeklyCap: "weeklyCap",
+    };
+    const key = fields[field];
+    if (key) setDraft((current) => (current ? { ...current, [key]: answer } : current));
   }
 
   async function save() {
@@ -238,6 +209,22 @@ export function SetupFlow({ officeId }: { officeId: string }) {
 
       <div className="grid grid-cols-1 gap-8 lg:grid-cols-2">
         <section className="flex flex-col gap-5">
+          {/* Talk mode: the question is asked out loud first. The buttons below still work. */}
+          {mode === "talk" && VOICE_STEP[step] && (
+            <VoiceInterview
+              key={step}
+              fields={[VOICE_STEP[step]!]}
+              hideQuestion
+              onAnswer={applyVoice}
+              onDone={() => setStepIndex((current) => Math.min(current + 1, STEPS.length - 1))}
+            />
+          )}
+          {mode === "talk" && step === "who" && (
+            <p className="rounded-2xl border p-5">
+              Fill in who you are and tap Next. Then the rest of the questions are asked out loud.
+            </p>
+          )}
+
           {step === "who" && <WhoStep draft={draft} update={update} />}
 
           {step === "status" && (
@@ -304,18 +291,6 @@ export function SetupFlow({ officeId }: { officeId: string }) {
             />
           )}
 
-          {step === "review" && filled && (
-            <div className="flex flex-col gap-2">
-              <p className="font-medium">Filled in from what you said:</p>
-              <ul className="list-disc pl-6">
-                {filled.map((name) => (
-                  <li key={name}>{name}</li>
-                ))}
-              </ul>
-              <p>Go Back to change any of them.</p>
-            </div>
-          )}
-
           {step === "review" && (
             <p>
               Check the sign. It takes effect on the very next request, and you can undo it right
@@ -323,10 +298,6 @@ export function SetupFlow({ officeId }: { officeId: string }) {
             </p>
           )}
 
-          {/* Say it all at once. Talk mode offers it on every question; Type mode on the first. */}
-          {step !== "who" && step !== "review" && (mode === "talk" || step === "status") && (
-            <DescribeSign mode={mode} onFilled={applyParsed} />
-          )}
 
           <div className="flex gap-3 pt-2">
             {stepIndex > 0 && (
