@@ -32,8 +32,8 @@ An in-person opt-in channel for pharma rep visits. The medical office publishes 
 | Route | Who | Device | Purpose |
 |---|---|---|---|
 | `/` | Judges | Laptop | Landing: logo, one-line pitch, three big buttons: View as Office, View as Rep, Scan demo QR (shows the QR large) |
-| `/desk` | Front desk | Laptop | Lobby Board (Today) and Our Sign. Two views only |
-| `/sign` | Doctor | Any | The Door Sign with three big status buttons, edit in place, and setup flow |
+| `/desk` | Front desk | Laptop | Lobby Board: Requests and Rep visits. Two views only |
+| `/sign` | Doctor | Any | Rep visits: status buttons and short settings, split into what reps see and what only the office sees |
 | `/sign/setup` | Doctor / office manager | Any | One question per screen setup, Talk / Type switch |
 | `/rep` | Rep | Phone | Fit list: stack of Door Signs sorted green / amber / grey |
 | `/k/[officeId]` | Rep | Phone | QR landing. Request flow: who, what, answer |
@@ -54,21 +54,33 @@ Max 3 screens, mobile first.
 
 ### 4.2 `/desk` Lobby Board
 
-- Header: office name, the Door Sign status pill, a quiet "Notes (n)" chip top right (opens a Drawer with rep notes; no alerts, never in the main column).
+- Header: office name, and a quiet messages chip top right with a count of new ones (opens a Drawer; no alerts, never in the main column). It holds rep notes ("Think we got this wrong?") and messages sent with requests.
+  - Each message shows where the rep's request stands ("Booked: Tuesday Sep 29, 12:30 PM" or "Not booked"). Closing one out always has an outcome, never just "clear":
+    - Not booked: **Book a visit** (next open time) or **Not this time** (declines, which also withdraws any "book next week" offer).
+    - Booked: **Cancel the visit** or **Keep the visit**.
+    - Nothing to act on (no request, the rep canceled, or a safety notice): **Mark done**.
+  - Booking, declining and canceling are the same override as the board's buttons, so the rep gets the same email. Undo reverts both the override and the message. Resolved messages can be reopened.
+  - Wording stays friendly: reps are guests, not adversaries.
 - **Today view:** single column, newest on top, like a departures board.
   - QR arrivals (`source = 'qr'`) get a full card that slides in (motion): rep name, company, drug, decision, slot. Card actions: "Approve anyway" / "Decline" (override).
   - Other requests are quiet one-line rows.
   - Updates live via Supabase realtime. No refresh.
-- **Our Sign view:** the same Door Sign component as `/sign`, editable.
+- **Rep visits view:** the same editor as `/sign` (see 4.3), without the office name, since the header shows it.
 - Demo reset button, small, in the footer: "Reset demo" (calls `/api/demo/reset`).
 
-### 4.3 `/sign` Door Sign (doctor)
+### 4.3 `/sign` Rep visits (doctor)
 
-- The Door Sign card, big. Labeled "This is what reps see."
-- Three big buttons: **Open**, **Topics only**, **Closed** (ToggleGroup). Tapping one opens a two-button choice: **Just today** / **From now on**.
-  - Just today writes `today_status` + `today_status_date`; it expires automatically the next day (computed on read, no cron).
-- Every line on the sign is tappable to edit in place: topics wanted, visit slots, weekly cap, redirect options, brand blocks (brand blocks shown only here and on desk, labeled "Private, reps never see this").
-- History line under the sign: the most recent change, e.g. "Yesterday: closed to all reps. Reopen?" with one-tap revert.
+The office answers "do we take rep visits, and which ones?" in two sections. No separate sign preview: the sections themselves say who sees what.
+
+- **Reps see this** (eye icon, styled like the Door Sign card):
+  - Status: **Open**, **Topics only**, **Closed** side by side, the current one in its status color. One line under them says what it means for reps (e.g. "Only reps with a topic you want"; Closed: "No visits. Safety notices still get through."). One tap changes it from now on. No "just today" option.
+  - Short settings, each a small label over today's answer with a text **Change** button: **Topics**, **Visit times**, **Instead of a visit**. Change opens the editor in place on the card: no extra boxes or divider lines.
+- **Only your office sees this** (lock icon, muted background): **Weekly limit**, **Blocked companies**.
+- **Topics:** chips of therapeutic areas. "+ Add topic" opens a small inline box (Enter adds, Escape cancels).
+- **Visit times** (also used in setup):
+  - Weekly pattern: a grid of Mon to Fri by every working hour, 8 AM to 5 PM, in a scroll box that opens at the first time set. Tap a box to make that time available every week (green with a check). Drag across boxes to fill a rectangle, spreadsheet style; the first box decides whether the drag fills or clears. Tap a day name to fill that column, or a time to fill that row; tap again when full to clear it. Hovering a day or time previews the change (light green where it adds, faded where it clears). Times already in use (e.g. 12:30) get their own row; "+ Other time" adds one.
+  - Next two weeks: every upcoming visit as a button. Tap one to skip just that date (e.g. the doctor is out) without touching the weekly pattern; tap again to bring it back. The Visit times answer lists skips ("Skipping Thu Oct 1").
+- History line at the bottom: the most recent change with one-tap **Change back**.
 - Undo toast (Sonner) on every change.
 - Link: "Set up again" goes to `/sign/setup`.
 
@@ -79,7 +91,7 @@ Max 3 screens, mobile first.
 - Step 1: NPI number (optional). If entered, call the NPI Registry server-side and pre-fill name, specialty, address; doctor confirms. Skip button available.
 - Step 2: Status (Open / Topics only / Closed).
 - Step 3: Topics wanted (chips of therapeutic areas + optional free text).
-- Step 4: Visit days and times (chips for days, a few time chips) and weekly cap (stepper 0 to 10).
+- Step 4: Visit times (the same weekly grid as 4.3) and weekly cap (stepper 0 to 10).
 - Step 5: Redirect options offered (checkbox chips: Drop samples, Virtual meeting, Next open slot, Leave materials).
 - Step 6: Review the sign, Save.
 - **Type** mode must work first. **Talk** mode (Grok Voice) is layered on later: spoken answer is transcribed, shown as editable text, and parsed by Grok into the same fields.
@@ -129,7 +141,9 @@ Order of checks:
 5. Purpose `drop_samples` → accepted, no slot.
 6. Find next slot this week (Mon to Sun, America/New_York) where accepted count < weekly cap. If found → accepted with slotAt. If not → redirected, reasonCode `cap_full`, slotAt = first slot next week, redirect `next_slot`.
 
-Effective status: `today_status` if `today_status_date` equals today's date in America/New_York, else `status`.
+Effective status: `today_status` if `today_status_date` equals today's date in America/New_York, else `status`. The UI no longer sets a just-today status (every change is from now on and clears any `today_status`); the columns stay so older history and Undo still work.
+
+Visit slots: each is weekly (`day`, `time`, optional `end`) or a one-off on a `date`. A weekly slot may carry `skip`: dates it doesn't happen. All slot-to-date math goes through `upcomingWindows` in `src/lib/week.ts`, which passes over skipped dates, so the engine, fit list, desk overrides and reset all respect skips.
 
 The answer text shown to the rep comes from templates keyed by decision + redirectAction (`src/lib/messages.ts`). Never reveal reasonCode `blocked` or cap usage. `blocked` and `closed` both read as "Not taking visits right now."
 
@@ -188,7 +202,7 @@ Printed rep cards for the expo and their expected outcome at Peachtree Family:
 
 - Next.js App Router, TypeScript, Tailwind, shadcn/ui (Stone base color), Geist font, lucide-react icons.
 - Status colors are the only color in the app: green = open / accepted, amber = topics / redirected, grey = closed / declined. Define as CSS variables and use everywhere.
-- The Door Sign is one component (`src/components/door-sign.tsx`) reused on `/sign`, `/desk`, `/rep`, setup preview. Rounded, soft shadow, generous whitespace, feels like a physical sign.
+- The Door Sign component (`src/components/door-sign.tsx`) is the live preview in `/sign/setup`. Rounded, soft shadow, generous whitespace, feels like a physical sign. `/sign` and `/desk` edit the same fields as Rep visits (4.3), whose public section uses the same card style.
 - Accessibility floor: base text 18px+, tap targets 48px+, words on every button, no icon-only controls, no swipe or hover-only actions, no hidden menus, AA contrast.
 - Loading: shadcn Skeleton for every data area. (Lottie logo loader is post-MVP.)
 - Motion (`motion` package) in exactly two places: Lobby Board card arrival and Door Sign status flip.
@@ -199,7 +213,7 @@ Printed rep cards for the expo and their expected outcome at Peachtree Family:
 1. Schema + seed (including 30 days of history) + reset route, deployed to Vercel. (must)
 2. Decision engine + `/k/[officeId]` flow end to end with template text. (must, this is the demo)
 3. `/desk` Lobby Board with realtime + overrides. (must)
-4. `/sign` Door Sign editing: status with just today / from now on, edit in place, undo, history line. (must)
+4. `/sign` Rep visits editing: status, settings edited in place, visit-time grid with skips, undo, history line. (must)
 5. `/signals` Demand Signals page. (must, this is what Impiricus buys)
 6. `/rep` fit list. (should)
 7. Rep notes drawer. (should)
@@ -211,7 +225,8 @@ Printed rep cards for the expo and their expected outcome at Peachtree Family:
 
 - Scan QR on a real phone → answer screen in under 3 seconds, and the card appears on `/desk` without refresh.
 - Each printed rep card produces its expected outcome.
-- Flip Peachtree to Closed "Just today" on `/sign` → next scan is grey with a redirect; `/rep` shows Peachtree grey.
+- Flip Peachtree to Closed on `/sign` → next scan is grey with a redirect; `/rep` shows Peachtree grey.
+- Skip one upcoming Peachtree visit time → the next accepted request books the following open time, not the skipped one.
 - Undo restores the previous status.
 - Safety notice is accepted even when Closed.
 - Kill the xAI key → every flow except Talk mode and free-text setup parsing still works.
