@@ -40,7 +40,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   const existing = await db
     .from("requests")
     .select(
-      "office_id, purpose, decision, reason_code, redirect_action, overridden, original_decision, original_reason_code, offices(visit_slots)"
+      "office_id, purpose, decision, reason_code, redirect_action, slot_at, overridden, original_decision, original_reason_code, offices(visit_slots)"
     )
     .eq("id", id)
     .maybeSingle();
@@ -97,7 +97,10 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
 
   await pingOffice(db, request_.office_id);
   if (body.action !== "restore") {
-    after(() => emailOverride(db, id, changes.overridden_at!));
+    // If a booked visit was just declined, the email says it's canceled (and when it was).
+    const wasBooked = request_.decision === "accepted" && body.action === "decline";
+    const canceledSlot = wasBooked ? request_.slot_at : null;
+    after(() => emailOverride(db, id, changes.overridden_at!, { wasBooked, canceledSlot }));
   }
   return Response.json({ ok: true });
 }

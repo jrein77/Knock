@@ -21,7 +21,7 @@ export async function sendEmail({ to, subject, text }: { to: string; subject: st
       signal: AbortSignal.timeout(5000),
     });
     if (response.ok) console.log(`[email sent] to=${to} subject=${subject}`);
-    else console.error(`[email failed] ${response.status} ${await response.text()}`);
+    else console.error(`[email failed] to=${to} subject=${subject} ${response.status} ${await response.text()}`);
   } catch (error) {
     console.error("[email failed]", error);
   }

@@ -149,8 +149,13 @@ export function LobbyBoard({ officeId }: { officeId: string }) {
     }
     load();
 
-    const verb = action === "approve" ? "Approved" : "Declined";
-    toast(`${verb} ${request.rep_name ?? "this request"}`, {
+    const done =
+      action === "approve"
+        ? `Approved ${request.rep_name ?? "this request"}`
+        : request.decision === "accepted"
+          ? `Canceled the visit for ${request.rep_name ?? "this rep"}`
+          : `Declined ${request.rep_name ?? "this request"}`;
+    toast(done, {
       duration: 10_000,
       action: {
         label: "Undo",
@@ -310,7 +315,11 @@ export function LobbyBoard({ officeId }: { officeId: string }) {
                     <ArrivalCard request={request} onOverride={isToday ? override : undefined} />
                   </motion.div>
                 ) : (
-                  <QuietRow key={request.id} request={request} />
+                  <QuietRow
+                    key={request.id}
+                    request={request}
+                    onOverride={isToday ? override : undefined}
+                  />
                 )
               )}
             </AnimatePresence>
@@ -557,7 +566,7 @@ function ArrivalCard({
               onClick={() => onOverride!(request, "decline")}
               className="h-12 px-5 text-lg"
             >
-              Decline
+              {request.decision === "accepted" ? "Cancel visit" : "Decline"}
             </Button>
           )}
         </div>
@@ -567,19 +576,42 @@ function ArrivalCard({
 }
 
 // Any other request (e.g. from the rep fit list). One quiet line.
-function QuietRow({ request }: { request: DeskRequest }) {
+// One quiet line, with one override button on today's board:
+// "Cancel visit" for a booked visit, "Approve anyway" for anything else.
+function QuietRow({
+  request,
+  onOverride,
+}: {
+  request: DeskRequest;
+  onOverride?: (request: DeskRequest, action: "approve" | "decline") => void;
+}) {
+  const booked = request.decision === "accepted";
+  const canAct = onOverride && !(booked && request.purpose === "safety_notice");
+
   return (
-    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b py-3 text-muted-foreground">
-      <span>{formatTime(request.created_at)}</span>
-      <span className="text-foreground">
-        {request.rep_name}, {request.rep_company}
-      </span>
-      <span>{whatTheyBrought(request)}</span>
-      <span>
-        · {DECISION_STYLE[request.decision].label}
-        {request.slot_at && request.decision === "accepted" && ` for ${formatSlot(request.slot_at)}`}
-        {request.overridden && " (overridden by the desk)"}
-      </span>
+    <div className="flex items-center justify-between gap-3 border-b py-3">
+      <p className="min-w-0 text-muted-foreground">
+        <span>{formatTime(request.created_at)} </span>
+        <span className="text-foreground">
+          {request.rep_name}, {request.rep_company}
+        </span>
+        <span> · {whatTheyBrought(request)}</span>
+        <span>
+          {" "}
+          · {DECISION_STYLE[request.decision].label}
+          {request.slot_at && booked && ` for ${formatSlot(request.slot_at)}`}
+          {request.overridden && " (overridden by the desk)"}
+        </span>
+      </p>
+      {canAct && (
+        <Button
+          variant="outline"
+          onClick={() => onOverride(request, booked ? "decline" : "approve")}
+          className="h-12 shrink-0 px-4 text-lg"
+        >
+          {booked ? "Cancel visit" : "Approve anyway"}
+        </Button>
+      )}
     </div>
   );
 }

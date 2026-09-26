@@ -12,7 +12,9 @@ export const EMAIL_DELAY_MS = 12_000;
 export async function emailOverride(
   db: ReturnType<typeof createServerClient>,
   requestId: string,
-  overriddenAt: string
+  overriddenAt: string,
+  // Set when the desk canceled a visit that was already booked.
+  canceled: { wasBooked: boolean; canceledSlot: string | null } = { wasBooked: false, canceledSlot: null }
 ) {
   await new Promise((resolve) => setTimeout(resolve, EMAIL_DELAY_MS));
 
@@ -42,6 +44,20 @@ export async function emailOverride(
         "",
         `Good news: ${officeName} approved your visit. ${when}`.trim(),
         "Check in at the front desk when you arrive.",
+        "",
+        "Knock",
+      ].join("\n"),
+    });
+  } else if (canceled.wasBooked) {
+    const when = canceled.canceledSlot ? ` on ${formatVisit(canceled.canceledSlot)}` : "";
+    await sendEmail({
+      to: email,
+      subject: `Your visit at ${officeName} is canceled`,
+      text: [
+        greeting,
+        "",
+        `${officeName} had to cancel your visit${when}. Sorry for the change.`,
+        "You're welcome to leave materials at the front desk, or ask again for another time.",
         "",
         "Knock",
       ].join("\n"),
