@@ -19,7 +19,7 @@ export const metadata: Metadata = {
 };
 
 // viewport-fit=cover lets pages keep buttons clear of the phone's home indicator
-// (see the safe-area padding on sticky buttons).
+// (see the safe-area padding on the QR request screens).
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,

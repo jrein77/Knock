@@ -242,12 +242,11 @@ function Flow({ officeId, officeName, drugs }: FlowProps) {
 
         {error && <p role="alert">{error}</p>}
 
-        {/* Pinned to the bottom of the screen so it's always reachable on a phone. */}
-        <div className="sticky bottom-0 -mx-6 bg-background px-6 pt-3 pb-[max(1.5rem,env(safe-area-inset-bottom))]">
-          <Button onClick={ask} disabled={!canAsk} className="h-14 w-full text-lg">
-            {sending ? "Checking the sign..." : "Ask the office"}
-          </Button>
-        </div>
+        {/* In the page, not pinned to the screen's bottom edge: the browser a QR scan opens in
+            can cover that edge with its toolbar. Screen's bottom padding keeps it scrollable clear. */}
+        <Button onClick={ask} disabled={!canAsk} className="h-14 w-full text-lg">
+          {sending ? "Checking the sign..." : "Ask the office"}
+        </Button>
       </Screen>
     );
   }
@@ -299,9 +298,13 @@ function Flow({ officeId, officeName, drugs }: FlowProps) {
 }
 
 // Every screen: content centered both ways, on phones and laptops.
+// Extra room at the bottom (plus the phone's safe area) so the last button can always be scrolled
+// above a browser toolbar, e.g. in the in-app browser a QR scan opens.
 function Screen({ className = "", children }: { className?: string; children: React.ReactNode }) {
   return (
-    <main className={`flex min-h-dvh w-full flex-1 items-center justify-center p-6 ${className}`}>
+    <main
+      className={`flex min-h-dvh w-full flex-1 items-center justify-center px-6 pt-6 pb-[calc(env(safe-area-inset-bottom)+4rem)] ${className}`}
+    >
       <div className="flex w-full max-w-md flex-col gap-6">{children}</div>
     </main>
   );
