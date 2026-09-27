@@ -178,8 +178,27 @@ export function generateHistory(now: Date) {
       overridden_at: null as string | null,
       original_decision: null as string | null,
       original_reason_code: null as string | null,
+      redirect_taken_at: null as string | null,
     };
   });
+
+  // 2a. After a "not now": some reps take what the office offered instead, a few minutes later.
+  //     And now and then the desk approves a visit the sign had pushed to next week.
+  for (const request of requests) {
+    if (request.decision === "accepted") continue;
+    const roll = random();
+    const created = new Date(request.created_at).getTime();
+    if (request.redirect_action && request.redirect_action !== "next_slot" && roll < 0.45) {
+      request.redirect_taken_at = new Date(created + 3 * 60 * 1000).toISOString();
+    } else if (request.reason_code === "cap_full" && request.slot_at && roll > 0.85) {
+      request.overridden = true;
+      request.overridden_at = new Date(created + 20 * 60 * 1000).toISOString();
+      request.original_decision = request.decision;
+      request.original_reason_code = request.reason_code;
+      request.decision = "accepted";
+      request.redirect_action = null;
+    }
+  }
 
   // 2b. A few booked visits get canceled a day later: some by the rep, some by the practice.
   //     Demand Signals shows both kinds of drop-off.
@@ -213,15 +232,52 @@ export function generateHistory(now: Date) {
     created_at: new Date(new Date(request.created_at).getTime() + 5 * 60 * 1000).toISOString(),
   }));
 
-  // 4. Kirkwood Dermatology opening up: Closed to Topics only.
+  // 4. Door Signs changing over the month, for "What changed" on Demand Signals.
+  //    Kirkwood Dermatology opening up (Closed to Topics only) is the one the demo leads with.
   const kirkwood = officesById.get(KIRKWOOD_ID)!;
+  const sandySprings = officesById.get("sandysprings-family")!;
+  const grantPark = officesById.get("grantpark-internal")!;
+  const marietta = officesById.get("marietta-cardio")!;
+  const brookhaven = officesById.get("brookhaven-internal")!;
+  const daysAgo = (days: number) => new Date(now.getTime() - days * DAY_MS).toISOString();
   const signHistory = [
     {
       office_id: KIRKWOOD_ID,
       summary: "Topics only (from now on)",
       before: snapshot({ ...kirkwood, status: "closed" }),
       after: snapshot(kirkwood),
-      created_at: new Date(now.getTime() - KIRKWOOD_OPENED_DAYS_AGO * DAY_MS).toISOString(),
+      created_at: daysAgo(KIRKWOOD_OPENED_DAYS_AGO),
+    },
+    {
+      office_id: sandySprings.id,
+      summary: "Wants: GLP-1 / diabetes, Asthma / COPD",
+      before: snapshot({ ...sandySprings, topics: ["GLP-1 / diabetes"] }),
+      after: snapshot(sandySprings),
+      created_at: daysAgo(5),
+    },
+    {
+      office_id: grantPark.id,
+      summary: "Visit times changed",
+      before: snapshot({ ...grantPark, visit_slots: grantPark.visit_slots.slice(0, 1) }),
+      after: snapshot(grantPark),
+      created_at: daysAgo(9),
+    },
+    {
+      office_id: marietta.id,
+      summary: "Other options changed",
+      before: snapshot({
+        ...marietta,
+        redirect_options: marietta.redirect_options.filter((option) => option !== "virtual"),
+      }),
+      after: snapshot(marietta),
+      created_at: daysAgo(12),
+    },
+    {
+      office_id: brookhaven.id,
+      summary: "Closed to reps (from now on)",
+      before: snapshot({ ...brookhaven, status: "topics" }),
+      after: snapshot(brookhaven),
+      created_at: daysAgo(18),
     },
   ];
 
