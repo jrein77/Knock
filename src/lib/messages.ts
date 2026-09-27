@@ -23,15 +23,26 @@ export function templateMessage(decision: Decision, officeName: string): string 
     return `That time isn't open anymore. The next open visit at ${officeName} is ${formatSlot(slotAt)}.`;
   }
 
+  // Why it isn't a visit, then what they can do instead. Blocked and closed read the same.
+  const why =
+    reasonCode === "off_topic"
+      ? `${officeName} isn't taking visits on this topic right now.`
+      : reasonCode === "cap_full" || reasonCode === "no_slots"
+        ? `${officeName} has no open visit times this week.`
+        : "Not taking visits right now.";
+
   switch (redirectAction) {
-    case "virtual":
-      return `${officeName} isn't taking in-person visits on this topic right now. A short virtual meeting works instead.`;
     case "next_slot":
       return `The next open visit at ${officeName} is ${slotAt ? formatSlot(slotAt) : "next week"}.`;
+    case "virtual":
+      return `${why} A short virtual meeting works instead.`;
     case "drop_samples":
-      return "Not taking visits right now. You're welcome to drop samples at the front desk.";
+      return `${why} You're welcome to drop samples at the front desk.`;
+    case "leave_materials":
+      return `${why} You're welcome to leave materials at the front desk.`;
     default:
-      return "Not taking visits right now. You're welcome to leave materials at the front desk.";
+      // The office didn't choose anything reps can do instead.
+      return `${why} Please try again another time.`;
   }
 }
 

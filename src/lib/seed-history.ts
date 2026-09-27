@@ -2,7 +2,7 @@
 // Every decision comes from the real decision engine run against the office's sign
 // at that time. A fixed random seed makes every reset tell the same story.
 
-import { decide } from "./decide";
+import { decide, declineRedirect } from "./decide";
 import { templateMessage } from "./messages";
 import { seedBrandBlocks, seedDrugs, seedOffices } from "./seed";
 import type { SignSnapshot } from "./sign";
@@ -196,7 +196,7 @@ export function generateHistory(now: Date) {
       request.original_decision = "accepted";
       request.original_reason_code = request.reason_code;
       request.decision = "declined";
-      request.redirect_action = "leave_materials";
+      request.redirect_action = declineRedirect(officesById.get(request.office_id)!);
       request.slot_at = null;
     }
   }

@@ -21,7 +21,7 @@ An in-person opt-in channel for pharma rep visits. The medical office publishes 
 ## 3. Core rules (non-negotiable)
 
 1. **Safety notices always pass.** A request with purpose `safety_notice` is always accepted. This is the only setting nobody can change.
-2. **Every no comes with a redirect.** Declined and redirected answers always include one concrete next step (next open slot, drop samples at desk, virtual meeting, leave materials).
+2. **Every no comes with a next step the office offers.** Declined and redirected answers include one concrete next step (next open slot, drop samples at desk, virtual meeting, leave materials), but only one the office chose under "Instead of a visit". If it chose none, the answer says to try again another time. The same goes for desk declines, cancellations and their emails, and the desk shows what each rep was offered.
 3. **Publish demand, hide rejections.** Reps may see an office's status, wanted topics, and visit days. Reps never see brand blocks, cap usage, or the reason code behind a "not now".
 4. **Decisions always read the current sign.** Any edit takes effect on the very next request.
 5. **Undo, never confirm.** Every change shows a toast with Undo for ~10 seconds. No confirm dialogs. Nothing is irreversible.
@@ -135,11 +135,13 @@ Output: `{ decision: 'accepted' | 'redirected' | 'declined', reasonCode, slotAt 
 
 Order of checks:
 1. `purpose === 'safety_notice'` → accepted, reasonCode `safety`, no slot needed (deliver at desk).
-2. Rep's company is in the office's brand blocks → declined, reasonCode `blocked`, redirect `leave_materials`.
-3. Effective status `closed` → declined, reasonCode `closed`, redirect: first allowed of `drop_samples`, `leave_materials`.
-4. Effective status `topics` and drug's therapeutic area is not in office topics → redirected, reasonCode `off_topic`, redirect: `virtual` if offered, else `leave_materials`.
+2. Rep's company is in the office's brand blocks → declined, reasonCode `blocked`, redirect: first offered of `leave_materials`, `drop_samples`.
+3. Effective status `closed` → declined, reasonCode `closed`, redirect: first offered of `drop_samples`, `leave_materials`, `virtual`.
+4. Effective status `topics` and drug's therapeutic area is not in office topics → redirected, reasonCode `off_topic`, redirect: first offered of `virtual`, `leave_materials`, `drop_samples`.
 5. Purpose `drop_samples` → accepted, no slot.
-6. Find next slot this week (Mon to Sun, America/New_York) where accepted count < weekly cap. If found → accepted with slotAt. If not → redirected, reasonCode `cap_full`, slotAt = first slot next week, redirect `next_slot`.
+6. Find next slot this week (Mon to Sun, America/New_York) where accepted count < weekly cap. If found → accepted with slotAt. If not → redirected, reasonCode `cap_full`, slotAt = first slot next week, redirect: first offered of `next_slot`, `virtual`, `drop_samples`, `leave_materials`.
+
+Every redirect comes only from the office's "Instead of a visit" options. None offered → redirect is null, and the answer says to try again another time.
 
 Effective status: `today_status` if `today_status_date` equals today's date in America/New_York, else `status`. The UI no longer sets a just-today status (every change is from now on and clears any `today_status`); the columns stay so older history and Undo still work.
 

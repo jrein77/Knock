@@ -1,5 +1,6 @@
 import { after } from "next/server";
 import { z } from "zod";
+import { declineRedirect } from "@/lib/decide";
 import { emailOverride } from "@/lib/override-email";
 import { pingOffice } from "@/lib/ping";
 import { createServerClient } from "@/lib/supabase/server";
@@ -40,7 +41,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   const existing = await db
     .from("requests")
     .select(
-      "office_id, purpose, decision, reason_code, redirect_action, slot_at, overridden, original_decision, original_reason_code, offices(visit_slots)"
+      "office_id, purpose, decision, reason_code, redirect_action, slot_at, overridden, original_decision, original_reason_code, offices(visit_slots, redirect_options)"
     )
     .eq("id", id)
     .maybeSingle();
@@ -65,7 +66,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   } else if (body.action === "approve") {
     // Visits and lunches get the next slot this week, even if the cap is full.
     const needsSlot = request_.purpose === "visit" || request_.purpose === "lunch";
-    const office = request_.offices as unknown as Pick<Office, "visit_slots">;
+    const office = request_.offices as unknown as Pick<Office, "visit_slots" | "redirect_options">;
     const nextSlot = needsSlot ? upcomingSlots(new Date(), office.visit_slots)[0] : undefined;
     changes = {
       decision: "accepted",
@@ -80,10 +81,12 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     if (request_.purpose === "safety_notice") {
       return Response.json({ error: "Safety notices can't be declined" }, { status: 400 });
     }
+    // Only what the office offers instead (its sign's "Instead of a visit"), or nothing.
+    const office = request_.offices as unknown as Pick<Office, "redirect_options">;
     changes = {
       decision: "declined",
       slot_at: null,
-      redirect_action: "leave_materials",
+      redirect_action: declineRedirect(office),
       overridden: true,
       overridden_at: overriddenAt,
       ...original,

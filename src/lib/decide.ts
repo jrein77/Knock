@@ -42,11 +42,15 @@ export function effectiveStatus(office: Office, now: Date): Status {
   return office.status;
 }
 
-// The first of `preferred` that the office offers.
-// Falls back to leaving materials, so every "no" comes with a next step.
-function firstOffered(office: Office, preferred: RedirectAction[]): RedirectAction {
-  const offered = preferred.find((action) => office.redirect_options.includes(action));
-  return offered ?? "leave_materials";
+// The first of `preferred` that the office offers ("Instead of a visit" on its sign), or null.
+// Reps are only ever offered what the office chose. With nothing, they're told to try another time.
+function firstOffered(office: Pick<Office, "redirect_options">, preferred: RedirectAction[]): RedirectAction | null {
+  return preferred.find((action) => office.redirect_options.includes(action)) ?? null;
+}
+
+// What a rep can do instead when the desk declines or cancels a visit: the front-desk drop-offs first.
+export function declineRedirect(office: Pick<Office, "redirect_options">): RedirectAction | null {
+  return firstOffered(office, ["leave_materials", "drop_samples", "virtual"]);
 }
 
 // Blocked if the rep's company or the drug's company is on the office's block list.
@@ -71,7 +75,8 @@ export function decide(input: DecideInput): Decision {
       decision: "declined",
       reasonCode: "blocked",
       slotAt: null,
-      redirectAction: "leave_materials",
+      // Front-desk drop-offs only: a blocked company isn't offered a meeting.
+      redirectAction: firstOffered(office, ["leave_materials", "drop_samples"]),
     };
   }
 
@@ -81,7 +86,7 @@ export function decide(input: DecideInput): Decision {
       decision: "declined",
       reasonCode: "closed",
       slotAt: null,
-      redirectAction: firstOffered(office, ["drop_samples", "leave_materials"]),
+      redirectAction: firstOffered(office, ["drop_samples", "leave_materials", "virtual"]),
     };
   }
 
@@ -91,7 +96,7 @@ export function decide(input: DecideInput): Decision {
       decision: "redirected",
       reasonCode: "off_topic",
       slotAt: null,
-      redirectAction: firstOffered(office, ["virtual"]),
+      redirectAction: firstOffered(office, ["virtual", "leave_materials", "drop_samples"]),
     };
   }
 
@@ -136,7 +141,7 @@ export function decide(input: DecideInput): Decision {
       decision: "redirected",
       reasonCode,
       slotAt: null,
-      redirectAction: firstOffered(office, ["drop_samples", "leave_materials"]),
+      redirectAction: firstOffered(office, ["drop_samples", "leave_materials", "virtual"]),
     };
   }
   return {
@@ -144,7 +149,7 @@ export function decide(input: DecideInput): Decision {
     reasonCode,
     slotAt: instead.start,
     slotEnd: instead.end,
-    redirectAction: firstOffered(office, ["next_slot", "leave_materials"]),
+    redirectAction: firstOffered(office, ["next_slot", "virtual", "drop_samples", "leave_materials"]),
   };
 }
 

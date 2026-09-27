@@ -19,7 +19,7 @@ import { SignEditor } from "@/components/sign-editor";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
-import { DECISION_STYLE } from "@/lib/status-style";
+import { DECISION_STYLE, REDIRECT_OPTION_LABELS } from "@/lib/status-style";
 import { useOfficePings } from "@/lib/use-office-pings";
 import type { DecisionKind, Office, Purpose, RedirectAction, Source, Status } from "@/lib/types";
 import { formatDate, formatSlot, formatWhen, shiftDate, TIME_ZONE } from "@/lib/week";
@@ -739,6 +739,14 @@ function DecisionDetail({ request }: { request: DeskRequest }) {
       {request.slot_at && <p className="font-medium">{formatSlot(request.slot_at)}</p>}
       {request.redirect_taken_at && request.redirect_action && (
         <p className="font-medium">{REDIRECT_TAKEN_LABELS[request.redirect_action]}</p>
+      )}
+      {/* What the rep was offered instead: only ever what "Instead of a visit" on the sign allows. */}
+      {request.decision !== "accepted" && !request.redirect_taken_at && (
+        <p className="text-muted-foreground">
+          {request.redirect_action
+            ? `Offered instead: ${REDIRECT_OPTION_LABELS[request.redirect_action]}`
+            : "Nothing offered instead. The rep was asked to try another time."}
+        </p>
       )}
     </div>
   );
