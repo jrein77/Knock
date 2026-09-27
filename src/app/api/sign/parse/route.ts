@@ -20,6 +20,19 @@ const REDIRECTS = ["drop_samples", "virtual", "next_slot", "leave_materials"] as
 const TIME = z.string().regex(/^\d{2}:\d{2}$/).describe('24-hour "HH:MM"');
 const MAX_ANSWER = 500;
 
+// How offices talk about times, spelled out so visit times come out exactly right.
+// Office hours are 8 AM to 5 PM, Monday to Friday.
+const TIME_PHRASES = [
+  'Days: "weekdays", "every day" or "daily" = Mon to Fri. "Except Friday" = Mon to Thu. "Mon through Wed" = Mon, Tue, Wed.',
+  '"All day" = 08:00 to 17:00. "Morning(s)" = 08:00 to 12:00. "Afternoon(s)" = 13:00 to 17:00.',
+  '"Lunch", "lunchtime" or "over lunch" = a window 12:00 to 13:00. "At noon" or "midday" = just 12:00, no end (only lunch is a window). "End of the day" = 16:00 to 17:00. "First thing" = just 08:00.',
+  '"Half past two" or "two thirty" = 14:30. "Quarter past nine" = 09:15. "Quarter to three" = 14:45. "Nine fifteen" = 09:15.',
+  'A bare hour from 1 to 7 is the afternoon (3 = 15:00). 8 to 11 is the morning (9 = 09:00). 12 is noon, never midnight.',
+  '"Between 2 and 4" or "from 2 to 4" = a window 14:00 to 16:00. "At 2" = just 14:00, no end. "Around 2" = 14:00.',
+  'A window with no end said ("after 3", "anytime after lunch") ends at 17:00. "Before 11" = 08:00 to 11:00.',
+  'Each day gets its own entry, e.g. "Tuesdays and Thursdays at lunch" = Tue 12:00-13:00 and Thu 12:00-13:00.',
+].join(" ");
+
 const TRY_AGAIN = "Couldn't read that right now. You can use the buttons instead.";
 const OFF_TOPIC = VOICE_REPLIES.offTopic;
 
@@ -35,10 +48,7 @@ function answerSchema(field: VoiceField, areas: string[], companies: string[]) {
     case "visitSlots":
       return z
         .array(z.object({ day: z.enum(DAYS), time: TIME, end: TIME.nullable() }))
-        .describe(
-          'Weekly times during office hours. "Noon", "12" or "lunch" is 12:00 (lunch ends 13:00). ' +
-            'A bare "2" or "3" means the afternoon (14:00, 15:00). Nothing before 07:00. Empty if they take no visits.'
-        );
+        .describe(`Weekly times during office hours. ${TIME_PHRASES} Empty if they take no visits.`);
     case "redirectOptions":
       return z.array(z.enum(REDIRECTS)).describe("Empty if none");
     case "weeklyCap":
@@ -94,7 +104,8 @@ export async function POST(request: Request) {
         'For a list, "no", "none" or "nobody" is a real answer: an empty list, not null. ' +
         `Known topics: ${areas.join(", ")}. Map loose words to them ` +
         '(e.g. "diabetes stuff" or "Ozempic-type drugs" is GLP-1 / diabetes, "statins" or "cholesterol" is Lipids). ' +
-        `Known companies: ${companies.join(", ")}.`,
+        `Known companies: ${companies.join(", ")}.` +
+        (field === "visitSlots" ? ` Reading times: ${TIME_PHRASES}` : ""),
       prompt: `Question: ${VOICE_QUESTIONS[field]}\nAnswer: ${said}`,
     });
 
@@ -110,6 +121,11 @@ export async function POST(request: Request) {
       const slots = output.answer as { day: (typeof DAYS)[number]; time: string; end: string | null }[];
       // Office hours only: a visit at "00:00" is a misreading of "12", so drop anything that early.
       const daytime = slots.filter((slot) => slot.time >= "07:00" && (!slot.end || slot.end > slot.time));
+      // "At noon" is a time, not the lunch hour. The model sometimes makes it 12:00 to 13:00.
+      const saidNoonNotLunch = /\b(noon|midday)\b/i.test(said) && !/\blunch/i.test(said);
+      if (saidNoonNotLunch) {
+        for (const slot of daytime) if (slot.time === "12:00" && slot.end === "13:00") slot.end = null;
+      }
       return Response.json({
         answer: daytime.map((slot) =>
           slot.end ? { day: slot.day, time: slot.time, end: slot.end } : { day: slot.day, time: slot.time }
