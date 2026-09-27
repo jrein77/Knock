@@ -1,5 +1,5 @@
 // The decision engine. Reads the office's current Door Sign and answers a rep's request.
-// Plain rules, checked in order (REQUIREMENTS.md section 5). No LLM in here.
+// Plain rules, checked in order (REQUIREMENTS.md section 4). No LLM in here.
 
 import type { DecisionKind, Drug, Office, Purpose, RedirectAction, Status } from "./types";
 import { nyToday, upcomingWindows, WEEK_MS } from "./week";

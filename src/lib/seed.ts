@@ -1,4 +1,4 @@
-// Demo seed data (REQUIREMENTS.md section 8). /api/demo/reset writes this to the database.
+// Demo seed data (REQUIREMENTS.md section 7). /api/demo/reset writes this to the database.
 
 import type { Drug, Office, RedirectAction } from "./types";
 

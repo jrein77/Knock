@@ -1,8 +1,5 @@
 # Knock: Requirements (MVP for HackGT 13, Impiricus track)
 
-Deadline: Sunday Sep 27, 8:00 AM ET (hard). Devpost video required. Judged at a table expo.
-Judging criteria: impact on HCP, originality, technical execution, commercial fit.
-
 ## 1. What Knock is
 
 An in-person opt-in channel for pharma rep visits. The medical office publishes a **Door Sign** (whether it takes rep visits, which topics it wants, when). Reps ask before they drive, or scan a QR code at the front desk. Knock answers instantly: approved with a time slot, redirected to something useful, or "not now" with a redirect. Every answer is a demand signal.
@@ -11,14 +8,7 @@ An in-person opt-in channel for pharma rep visits. The medical office publishes 
 - **Rep:** know before you go. Only visit offices that are open to you and want what you carry.
 - **Differentiator:** existing tools rank doctors by value using prescribing data. Knock uses what the office declared: who is willing. "Their tools tell reps who's worth visiting. Ours tells them who's willing."
 
-## 2. What Knock is NOT (do not build)
-
-- Not a dashboard. No sidebars, data tables, charts, settings pages, or more than two tabs on any surface.
-- Not a chatbot. No chat UI anywhere. The AI decides and writes short text; nobody chats with it.
-- Not a scheduling tool for reps. Reps cannot pick arbitrary times.
-- No auth, no native app, no EHR or patient data, no calendar OAuth, no billing, no maps, no charts, no dark mode, no agent-to-agent negotiation, no email digest.
-
-## 3. Core rules (non-negotiable)
+## 2. Core rules (non-negotiable)
 
 1. **Safety notices always pass.** A request with purpose `safety_notice` is always accepted. This is the only setting nobody can change.
 2. **Every no comes with a next step the office offers.** Declined and redirected answers include one concrete next step (next open slot, drop samples at desk, virtual meeting, leave materials), but only one the office chose under "Instead of a visit". If it chose none, the answer says to try again another time. The same goes for desk declines, cancellations and their emails, and the desk shows what each rep was offered.
@@ -27,7 +17,7 @@ An in-person opt-in channel for pharma rep visits. The medical office publishes 
 5. **Undo, never confirm.** Every change shows a toast with Undo for ~10 seconds. No confirm dialogs. Nothing is irreversible.
 6. **Safe default** for a new office status: `topics`.
 
-## 4. Surfaces and routes (no auth, separate URLs)
+## 3. Surfaces and routes (no auth, separate URLs)
 
 | Route | Who | Device | Purpose |
 |---|---|---|---|
@@ -41,7 +31,7 @@ An in-person opt-in channel for pharma rep visits. The medical office publishes 
 
 Demo office id: `peachtree-family`. The printed QR points to `/k/peachtree-family`.
 
-### 4.1 `/k/[officeId]` QR request flow (the demo core)
+### 3.1 `/k/[officeId]` QR request flow (the demo core)
 
 Max 3 screens, mobile first.
 1. **Who:** name, company, email. Saved to localStorage as a rep id after first submit; skipped on later scans (show "Not you?" link).
@@ -52,7 +42,7 @@ Max 3 screens, mobile first.
    - Grey "Not now" + redirect text + button.
    - Small link under the answer: "Think we got this wrong? Leave a note" opens a Drawer with a textarea. Saved as a rep note.
 
-### 4.2 `/desk` Lobby Board
+### 3.2 `/desk` Lobby Board
 
 - Header: office name, and a quiet messages chip top right with a count of new ones (opens a Drawer; no alerts, never in the main column). It holds rep notes ("Think we got this wrong?") and messages sent with requests.
   - Each message shows where the rep's request stands ("Booked: Tuesday Sep 29, 12:30 PM" or "Not booked"). Closing one out always has an outcome, never just "clear":
@@ -65,10 +55,10 @@ Max 3 screens, mobile first.
   - QR arrivals (`source = 'qr'`) get a full card that slides in (motion): rep name, company, drug, decision, slot. Card actions: "Approve anyway" / "Decline" (override).
   - Other requests are quiet one-line rows.
   - Updates live via Supabase realtime. No refresh.
-- **Rep visits view:** the same editor as `/sign` (see 4.3), without the office name, since the header shows it.
+- **Rep visits view:** the same editor as `/sign` (see 3.3), without the office name, since the header shows it.
 - Demo reset button, small, in the footer: "Reset demo" (calls `/api/demo/reset`).
 
-### 4.3 `/sign` Rep visits (doctor)
+### 3.3 `/sign` Rep visits (doctor)
 
 The office answers "do we take rep visits, and which ones?" in two sections. No separate sign preview: the sections themselves say who sees what.
 
@@ -84,19 +74,19 @@ The office answers "do we take rep visits, and which ones?" in two sections. No 
 - Undo toast (Sonner) on every change.
 - Link: "Set up again" goes to `/sign/setup`.
 
-### 4.4 `/sign/setup`
+### 3.4 `/sign/setup`
 
 - One question per screen, big buttons, Progress bar, live Door Sign preview beside or below: "This is what reps see."
 - Persistent **Talk / Type** switch at the top. Both modes write to the same draft. Switching keeps answers.
 - Step 1: NPI number (optional). If entered, call the NPI Registry server-side and pre-fill name, specialty, address; doctor confirms. Skip button available.
 - Step 2: Status (Open / Topics only / Closed).
 - Step 3: Topics wanted (chips of therapeutic areas + optional free text).
-- Step 4: Visit times (the same weekly grid as 4.3) and weekly cap (stepper 0 to 10).
+- Step 4: Visit times (the same weekly grid as 3.3) and weekly cap (stepper 0 to 10).
 - Step 5: Redirect options offered (checkbox chips: Drop samples, Virtual meeting, Next open slot, Leave materials).
 - Step 6: Review the sign, Save.
 - **Type** mode must work first. **Talk** mode (Grok Voice) is layered on later: spoken answer is transcribed, shown as editable text, and parsed by Grok into the same fields.
 
-### 4.5 `/rep` Fit list
+### 3.5 `/rep` Fit list
 
 - Rep picks their drugs once (chips; saved to localStorage with rep id).
 - Stack of Door Sign cards for all seeded offices, sorted:
@@ -106,7 +96,7 @@ The office answers "do we take rep visits, and which ones?" in two sections. No 
 - The reason is written on the card ("Wants: GLP-1, lipids · Tue/Thu 12:30"). No filter UI.
 - Tap a card: "Request a visit" goes through the same decision engine, with `source = 'fit_list'`.
 
-### 4.6 `/signals` Demand Signals (the Impiricus product)
+### 3.6 `/signals` Demand Signals (the Impiricus product)
 
 Who: Impiricus and brand teams, laptop. This is what Impiricus sells. Not a chart dashboard: a ranked feed of insight cards, each a plain sentence with the offices behind it and one action.
 
@@ -126,7 +116,7 @@ Who: Impiricus and brand teams, laptop. This is what Impiricus sells. Not a char
 - One small horizontal bar is allowed inside card 2. No other charts.
 - Updates on page load (no realtime needed).
 
-## 5. Decision engine
+## 4. Decision engine
 
 Location: `src/lib/decide.ts`. Pure function, plain TypeScript, easy to read. No LLM inside the decision.
 
@@ -149,7 +139,7 @@ Visit slots: each is weekly (`day`, `time`, optional `end`) or a one-off on a `d
 
 The answer text shown to the rep comes from templates keyed by decision + redirectAction (`src/lib/messages.ts`). Never reveal reasonCode `blocked` or cap usage. `blocked` and `closed` both read as "Not taking visits right now."
 
-## 6. Where Grok is used (office setup only)
+## 5. Where Grok is used (office setup only)
 
 Reps and the decision engine use no LLM. All rep input is structured.
 Provider: xAI via Vercel AI SDK (`@ai-sdk/xai`), model from env `XAI_MODEL`. Structured output with zod.
@@ -158,13 +148,13 @@ Provider: xAI via Vercel AI SDK (`@ai-sdk/xai`), model from env `XAI_MODEL`. Str
 If Grok fails, the Type flow with chips still works; free text is optional.
 Grok Imagine: logo concepts only, not in the product.
 
-## 7. Data model (Supabase Postgres)
+## 6. Data model (Supabase Postgres)
 
 See `supabase/schema.sql`. Tables: `offices`, `brand_blocks`, `drugs`, `reps`, `requests`, `rep_notes`, `sign_history`.
 Realtime enabled on `offices`, `requests`, `rep_notes`.
 Reads from the browser use the anon key with select-only RLS policies. All writes go through Next.js route handlers or server actions using the service role key (server only).
 
-## 8. Seed data (fictional brands, real therapeutic areas, fictional offices in real Atlanta neighborhoods)
+## 7. Seed data (fictional brands, real therapeutic areas, fictional offices in real Atlanta neighborhoods)
 
 Drugs:
 | id | brand | company | area |
@@ -200,17 +190,17 @@ Printed rep cards for the expo and their expected outcome at Peachtree Family:
 
 `/api/demo/reset`: deletes requests, rep_notes, sign_history, restores seed offices, reseeds the 1 accepted visit.
 
-## 9. UI system
+## 8. UI system
 
 - Next.js App Router, TypeScript, Tailwind, shadcn/ui (Stone base color), Geist font, lucide-react icons.
 - Status colors are the only color in the app: green = open / accepted, amber = topics / redirected, grey = closed / declined. Define as CSS variables and use everywhere.
-- The Door Sign component (`src/components/door-sign.tsx`) is the live preview in `/sign/setup`. Rounded, soft shadow, generous whitespace, feels like a physical sign. `/sign` and `/desk` edit the same fields as Rep visits (4.3), whose public section uses the same card style.
+- The Door Sign component (`src/components/door-sign.tsx`) is the live preview in `/sign/setup`. Rounded, soft shadow, generous whitespace, feels like a physical sign. `/sign` and `/desk` edit the same fields as Rep visits (3.3), whose public section uses the same card style.
 - Accessibility floor: base text 18px+, tap targets 48px+, words on every button, no icon-only controls, no swipe or hover-only actions, no hidden menus, AA contrast.
 - Loading: shadcn Skeleton for every data area. (Lottie logo loader is post-MVP.)
 - Motion (`motion` package) in exactly two places: Lobby Board card arrival and Door Sign status flip.
 - Components: Card, Badge, Button (lg), ToggleGroup, Drawer, Sonner, Progress, Skeleton, Input, Textarea, Label.
 
-## 10. Build order and cut lines
+## 9. Build order and cut lines
 
 1. Schema + seed (including 30 days of history) + reset route, deployed to Vercel. (must)
 2. Decision engine + `/k/[officeId]` flow end to end with template text. (must, this is the demo)
@@ -223,7 +213,7 @@ Printed rep cards for the expo and their expected outcome at Peachtree Family:
 9. Grok setup parsing (free text to fields), then Talk mode with Grok Voice. (could; hard cut 1 AM Sunday)
 10. Landing page polish, logo, QR tent card + rep cards printable page. (must before video)
 
-## 11. Acceptance checks (run before recording the video)
+## 10. Acceptance checks (run before recording the video)
 
 - Scan QR on a real phone → answer screen in under 3 seconds, and the card appears on `/desk` without refresh.
 - Each printed rep card produces its expected outcome.
@@ -234,7 +224,3 @@ Printed rep cards for the expo and their expected outcome at Peachtree Family:
 - Kill the xAI key → every flow except Talk mode and free-text setup parsing still works.
 - `/signals` with Norvance selected shows the unmet GLP-1 demand card; after a visitor's Glucavia visit is accepted at Peachtree and the page is reloaded, the count reflects it.
 - Reset demo restores everything.
-
-## 12. Slide only (pitch, not built)
-
-Brands pay per accepted visit; Impiricus runs the exchange and gets consented intent data. Aggregate trends only across large groups. Rep visits and lunches logged for Sunshine Act reporting. Sample requests hand off to Impiricus's existing sampling integration.
