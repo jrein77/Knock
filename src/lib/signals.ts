@@ -443,7 +443,7 @@ export async function loadSignals(
               `Asked from the fit list in the ${days / 2} days before that: ${earlier.filter((r) => r.source === "fit_list").length} of ${earlier.length}.`
             )} earlier in the period.`
           : null,
-      tripsSaved: line`Knock saved ${numbers[2].stat} trips: answers given before a rep drove over for nothing.`,
+      tripsSaved: line`${numbers[2].stat} trips were skipped because the rep got an answer before driving over.`,
     };
   }
 
@@ -485,15 +485,15 @@ export async function loadSignals(
       byPractice(walkIns, nameOf)
     );
     const couldStat = stat(
-      couldHaveBooked === walkIns.length ? "all" : couldHaveBooked,
+      couldHaveBooked === walkIns.length ? "All" : couldHaveBooked,
       "Each turned-away walk-in was run through the decision engine again against every other practice's sign as it is today. These would have been accepted somewhere.",
       [...welcomingOffices].sort()
     );
     return {
       lead:
         couldHaveBooked === 0
-          ? line`${walkInStat} ${walkIns.length === 1 ? "rep drove to a practice" : "reps drove to practices"} and got turned away at the desk. Asking on Knock first would have saved every one of those trips.`
-          : line`${walkInStat} ${walkIns.length === 1 ? "rep drove to a practice" : "reps drove to practices"} and got turned away at the desk. Asking on Knock first would have saved every one of those trips, and ${couldStat} of them could have booked a visit this week somewhere that wants them.`,
+          ? line`${walkInStat} ${walkIns.length === 1 ? "rep drove to a practice" : "reps drove to practices"} and got turned away at the desk.`
+          : line`${walkInStat} ${walkIns.length === 1 ? "rep drove to a practice" : "reps drove to practices"} and got turned away at the desk. ${couldStat} of them could have booked a visit this week somewhere that wants them.`,
       offices: [...welcomingOffices].sort(),
     };
   }
