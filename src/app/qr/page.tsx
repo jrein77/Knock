@@ -15,8 +15,8 @@ export default async function QrPage() {
         <Logo className="w-40" />
         <h1 className="text-3xl font-semibold text-balance">Reps welcome. Let&apos;s find a good time.</h1>
         <p className="text-muted-foreground">
-          Scan to see when Peachtree Family Medicine can meet and what they&apos;d love to hear about.
-          You&apos;ll have an answer in seconds.
+          Scan and tell Peachtree Family Medicine what you&apos;re bringing. You&apos;ll get an answer in
+          seconds: a visit time, or what to do instead.
         </p>
         <QrCode url={url} className="w-full max-w-sm" />
         <p className="text-base break-all text-muted-foreground">{url}</p>
