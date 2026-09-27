@@ -197,8 +197,13 @@ export function SignEditor({ officeId, showName = true }: { officeId: string; sh
     <div className="flex flex-col gap-6">
       {showName && <h1 className="text-2xl font-semibold">{office.name}</h1>}
 
-      {/* Status: one tap, from now on, with Undo. */}
-      <section className="flex flex-col gap-4 rounded-3xl bg-card p-5 shadow-lg ring-1 ring-foreground/10">
+      {/* Status: one tap, from now on, with Undo. Hidden on the check screen, which is only
+          about the answers being changed (Go back brings it back). */}
+      <section
+        className={`flex-col gap-4 rounded-3xl bg-card p-5 shadow-lg ring-1 ring-foreground/10 ${
+          showReview ? "hidden" : "flex"
+        }`}
+      >
         <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
           <h2 className="text-xl font-semibold">Taking rep visits?</h2>
           <span className="flex items-center gap-1.5 text-base text-muted-foreground">
